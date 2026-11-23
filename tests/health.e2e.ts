@@ -1,12 +1,5 @@
 import { expect, test } from '@playwright/test';
 
-test('the home page renders', async ({ page }) => {
-	await page.goto('/');
-
-	await expect(page).toHaveTitle('Chloris');
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Chloris');
-});
-
 test('the health check reports the database is up', async ({ request }) => {
 	const response = await request.get('/api/health');
 

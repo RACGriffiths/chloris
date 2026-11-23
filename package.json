@@ -14,9 +14,10 @@
 	},
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "vite build && vite build --config vite.cli.config.ts",
 		"preview": "vite preview",
 		"start": "node --env-file-if-exists=.env build",
+		"cli": "node --env-file-if-exists=.env build/cli",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -61,8 +62,11 @@
 		"vitest": "^5.1.0"
 	},
 	"dependencies": {
+		"@better-auth/passkey": "^1.7.27",
+		"better-auth": "^1.7.27",
 		"better-sqlite3": "^13.2.0",
 		"drizzle-orm": "^0.45.4",
+		"nodemailer": "^10.6.1",
 		"zod": "^4.6.7"
 	},
 	"allowScripts": {
