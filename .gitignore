@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# SvelteKit / Vite build output
+.svelte-kit/
+build/
+.output/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local data: SQLite database and photos
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Tests
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# Personal Claude Code files (not shared)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+*.swp
+.idea/

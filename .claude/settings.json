@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "svelte": {
+      "source": { "source": "github", "repo": "sveltejs/ai-tools" }
+    },
+    "better-auth-agent-skills": {
+      "source": { "source": "github", "repo": "better-auth/skills" }
+    }
+  },
+  "enabledPlugins": {
+    "svelte@svelte": true,
+    "auth-skills@better-auth-agent-skills": true,
+    "security-guidance@claude-plugins-official": true
+  }
+}
