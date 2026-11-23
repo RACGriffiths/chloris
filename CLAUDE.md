@@ -48,7 +48,8 @@ src/
     photos/       upload pipeline, storage, serving (v1)
     jobs/         scheduler, digests, photo clean-up (v1)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
-  lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte@latest add <name>)
+  lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
+                      change package versions, so check package.json afterwards)
   routes/
     (entry)/      sign-in, sign-in links, adding a first passkey, creating a home
     (app)/        the signed-in app: the home page and the account page
@@ -74,6 +75,8 @@ Much SvelteKit material online describes version 2. In this project:
 - Environment variables are declared in `src/env.ts` and imported from `$app/env/private`; `$env/*` is deprecated. Chloris reads them only in `hooks.server.ts` and passes them to `parseConfig()`. Elsewhere, call `getConfig()`.
 - There is no `svelte.config.js`; SvelteKit options go in `vite.config.ts`.
 - Return `Response.json(...)` from endpoints; the `json()` helper is deprecated.
+- `resolve()` from `$app/paths` takes a pathname *without* a leading slash (`resolve('account')`, `resolve('')` for the root), or a route ID *with* one, including route groups (`resolve('/(app)/account')`). Use pathnames.
+- `invalidateAll` is now `refreshAll`, also as a `goto()` option.
 - Hook types such as `ServerInit` and `Handle` come from `@sveltejs/kit/hooks`.
 
 ## Commands
