@@ -23,6 +23,21 @@ describe('createHome', () => {
 		});
 	});
 
+	it('checks and tidies its input', () => {
+		const alice = insertUser('alice@example.com');
+
+		expect(createHome(alice, { name: '  Flat  ', timeZone: 'europe/london' })).toMatchObject({
+			name: 'Flat',
+			timeZone: 'Europe/London'
+		});
+		expect(() => createHome(alice, { name: ' ', timeZone: 'Europe/London' })).toThrow(
+			'Give the home a name.'
+		);
+		expect(() => createHome(alice, { name: 'Flat', timeZone: 'Mars/Olympus_Mons' })).toThrow(
+			'Choose a time zone from the list.'
+		);
+	});
+
 	it('adds no one else to the new home, and the creator to no other home', () => {
 		const alice = insertUser('alice@example.com');
 		const bob = insertUser('bob@example.com');

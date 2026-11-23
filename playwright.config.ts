@@ -1,7 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-
-const port = 4173;
-const origin = `http://localhost:${port}`;
+import { origin, serverEnv } from './tests/server-env';
 
 export default defineConfig({
 	testDir: 'tests',
@@ -17,13 +15,6 @@ export default defineConfig({
 		command: process.env.CI ? 'node build' : 'npm run build && node build',
 		url: `${origin}/api/health`,
 		timeout: 120_000,
-		env: {
-			HOST: '127.0.0.1',
-			PORT: String(port),
-			ORIGIN: origin,
-			BETTER_AUTH_SECRET: 'end-to-end-tests-only-not-a-real-secret',
-			// Playwright empties test-results before each run, so every run starts with a new database.
-			DATA_DIR: 'test-results/e2e-data'
-		}
+		env: serverEnv
 	}
 });
