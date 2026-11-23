@@ -64,7 +64,7 @@ Everything is TypeScript in one SvelteKit project that builds to a single Node s
 | App framework | SvelteKit with the Node adapter | Pages and API in one codebase; components read like HTML; pages render on the server, so they load fast on a phone. |
 | UI | Tailwind CSS plus shadcn-svelte components (built on Bits UI) | A clean, consistent look without designing every control by hand. The components live in the repository, so they can be adjusted. |
 | Database | SQLite in WAL mode, via Drizzle ORM and better-sqlite3 | One file, easy backups; Drizzle gives typed queries and versioned migrations. better-sqlite3's online backup copies the database while the app runs. |
-| Login and roles | BetterAuth: passkey, magic link and organisation plugins, with its Drizzle adapter | Passwordless login; a home maps onto an organisation with roles and invites. |
+| Login and roles | BetterAuth: passkey, magic link and organisation plugins, with its Drizzle adapter | Passwordless login; a home maps onto an organisation with roles. Invite links are Chloris's own (D28). |
 | Validation | Zod, shared by forms and API | One definition of valid input, checked on both sides. |
 | Images | sharp (libvips) on the server; resizing in the browser before upload | Fast thumbnails and size variants; smaller uploads on mobile data. |
 | Background jobs | An in-process scheduler (e.g. croner) | Reminder digests need no Redis or separate worker at this scale. |
@@ -84,6 +84,7 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | User | — | Email, display name, passkeys, sessions, may create a home | Managed by BetterAuth. Only the command-line tool lets an account create a home. |
 | Home | — | Name, time zone, winter months | A BetterAuth organisation. |
 | Membership | User + home | Role, expires at | Expiry is used for sitters. |
+| Invite | Home | Role, token hash, created by, expires at, used at, used by | A link that works once, for 7 days. Only a hash of its token is stored. |
 | Room | Home | Name, indoor or outdoor, light level | Light: low, medium, bright, direct sun. |
 | Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. |
 | Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, repot, prune, mist, pest treatment, move, checked. A check records which task it was for. |
@@ -104,6 +105,7 @@ Passkeys are the main way in, with one-time sign-in links (magic links) as the f
 
 - There is no open sign-up. Accounts are created by the command-line tool or by opening an invite link, and after their first sign-in people are prompted to add a passkey.
 - Only an account the command-line tool created, or later allowed, can create a home, and it becomes the home's owner. An account that joined by invite never can, even if it later has no home (an expired sitter, a removed member): it is told it doesn't have access to a home.
+- Opening an invite link shows the home, the role and who sent it; joining waits for a button, so link previews in chat apps can't use it up. Someone without an account gives a name and email address, and the account, its membership and a session are created together, because the link is their only proof when email is off. The address counts as unverified until a sign-in link sent to it is used. An address that already has an account is asked to sign in first. Someone signed in joins with their own account; if they already belong to a home, the new one stays out of sight until switching between homes arrives.
 - Passkey sign-in offers autofill on the email field where the browser supports it.
 - Emailed sign-in links cover new devices and account recovery. The email form only signs in existing accounts, and answers the same whether or not an address has one.
 - Each sign-in link works once and expires after 15 minutes. It opens a page with a "Sign in" button rather than signing in straight away, so mail scanners that open links can't use it up.
@@ -132,7 +134,7 @@ A sitter's access ends automatically on its expiry date: an expired membership g
 - Every server route and form action calls one helper, `can(user, homeId, permission)`. Nothing checks a role name directly, so custom roles can be added later without touching the checks.
 - The browser can reach only BetterAuth's passkey endpoints. The app's own pages and form actions call the rest of BetterAuth on the server, and homes and memberships change only through the data-access layer, after `can()`.
 - The UI hides actions you can't take, but the server is the only authority.
-- Invitations carry a role, work once and expire. Each is a link the inviter can copy and share any way they like, so inviting works without email. When email is on, the link can also be sent by email.
+- Invitations carry a role (owner, carer or viewer; sitters come with expiry in version 2), work once and expire after 7 days. Each is a link the inviter copies when it is made and shares any way they like, so inviting works without email. Only a hash of the link is stored, so it can't be shown again: an owner cancels a lost one and makes another. Owners see pending invites and can cancel them. Later, when email is on, the link can also be sent by email.
 
 ## Features
 

@@ -11,7 +11,8 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
  * The account tables (user, session, account, verification, passkey) and the home tables (home,
  * membership, invitation) have the columns BetterAuth expects: a home is a BetterAuth
  * organisation, renamed in `#lib/server/auth`. BetterAuth checks this schema against its own when
- * it first touches the database, so a missing column fails loudly rather than at random.
+ * it first touches the database, so a missing column fails loudly rather than at random. Invite
+ * links are Chloris's own `invite` table (D28).
  */
 
 /** Milliseconds since the epoch, read and written as a `Date`. */
@@ -162,7 +163,10 @@ export const membership = sqliteTable(
 	]
 );
 
-/** Invitations to join a home. Shaped by BetterAuth; the invite links item decides how they are used. */
+/**
+ * BetterAuth's invitations. Unused: Chloris has its own invite links (`invite`, D28). The table
+ * stays because BetterAuth's organisation plugin refuses to start without it.
+ */
 export const invitation = sqliteTable(
 	'invitation',
 	{
@@ -183,4 +187,32 @@ export const invitation = sqliteTable(
 		index('invitation_home_id_idx').on(table.homeId),
 		index('invitation_email_idx').on(table.email)
 	]
+);
+
+/**
+ * Invite links to join a home (D19, D28). Chloris's own, rather than BetterAuth's invitations,
+ * which are tied to one email address. Only a hash of each link's token is stored, so the link
+ * is shown once, when it is made, and a copy of the database can't be used to join.
+ */
+export const invite = sqliteTable(
+	'invite',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		/** SHA-256 of the token in the link. */
+		tokenHash: text('token_hash').notNull().unique(),
+		/** The role the new member gets: one of `INVITE_ROLES` in `#lib/server/data/invites`. */
+		role: text('role').notNull(),
+		createdBy: text('created_by')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		expiresAt: timestamp('expires_at').notNull(),
+		/** When the link was used. A used invite never works again. */
+		usedAt: timestamp('used_at'),
+		usedBy: text('used_by').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: createdAt()
+	},
+	(table) => [index('invite_home_id_idx').on(table.homeId)]
 );

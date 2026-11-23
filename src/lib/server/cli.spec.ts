@@ -30,7 +30,7 @@ describe('sign-in-link', () => {
 		expect(await main(['sign-in-link', 'owner@example.com'], env, out)).toBe(0);
 
 		const output = logged.join('\n');
-		expect(output).toContain('Applied 1 database migration(s).');
+		expect(output).toMatch(/^Applied \d+ database migration\(s\)\./m);
 		expect(output).toContain('owner@example.com (a new account, which may create a home)');
 		expect(output).toMatch(/^ {2}http:\/\/localhost:5173\/sign-in\/link\?token=\w+$/m);
 		expect(errors).toEqual([]);

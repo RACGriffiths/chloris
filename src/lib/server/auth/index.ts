@@ -8,11 +8,12 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import type { Db } from '../db';
 import * as schema from '../db/schema';
 import { ac, roles } from '../permissions/roles';
+import { invites } from './invites';
 
 /**
  * Sign-in with BetterAuth: passkeys, with one-time sign-in links as the fallback, and no
- * passwords (D07). Nobody can sign up: accounts are made by the command-line tool or, later, by
- * invitation (D26). See docs/spec.md, Authentication and access control.
+ * passwords (D07). Nobody can sign up: accounts are made by the command-line tool or from an
+ * invite link (D26). See docs/spec.md, Authentication and access control.
  *
  * This module has no SvelteKit runtime imports, so the command-line tool can use it too.
  */
@@ -95,10 +96,12 @@ export function createAuth({ origin, secret, db, sendSignInLink, getRequestEvent
 						additionalFields: { timeZone: { type: 'string', required: true } }
 					},
 					member: { modelName: 'membership', fields: { organizationId: 'homeId' } },
+					// Unused: invite links are Chloris's own (D28), but the plugin needs the table.
 					invitation: { fields: { organizationId: 'homeId' } },
 					session: { fields: { activeOrganizationId: 'activeHomeId' } }
 				}
 			}),
+			invites(),
 			// Must stay last: copies the cookies set by any auth call onto SvelteKit's response.
 			sveltekitCookies(getRequestEvent ?? noRequestEvent)
 		]

@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, or } from 'drizzle-orm';
 import { getConnection } from '../db';
-import { membership } from '../db/schema';
+import { membership, user } from '../db/schema';
 
 export interface Membership {
 	homeId: string;
@@ -28,4 +28,31 @@ export function getMembership(homeId: string, userId: string): Membership | null
 /** Whether a membership still grants access at `now`. */
 export function isActive(member: Pick<Membership, 'expiresAt'>, now = new Date()): boolean {
 	return member.expiresAt === null || member.expiresAt > now;
+}
+
+/** A person in a home, as its owners see them. */
+export interface Member {
+	userId: string;
+	name: string;
+	email: string;
+	role: string;
+}
+
+/**
+ * The people whose membership of `homeId` still grants access, longest-standing first. Callers
+ * check `can(user, homeId, 'member:manage')` first.
+ */
+export function listMembers(homeId: string, now = new Date()): Member[] {
+	return getConnection()
+		.db.select({ userId: user.id, name: user.name, email: user.email, role: membership.role })
+		.from(membership)
+		.innerJoin(user, eq(user.id, membership.userId))
+		.where(
+			and(
+				eq(membership.homeId, homeId),
+				or(isNull(membership.expiresAt), gt(membership.expiresAt, now))
+			)
+		)
+		.orderBy(asc(membership.createdAt), asc(membership.id))
+		.all();
 }
