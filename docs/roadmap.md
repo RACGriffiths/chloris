@@ -19,9 +19,9 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 
 ## Version 1: useful every day, in one home
 
-- [ ] BetterAuth: magic-link sign-up, passkeys and sessions; a CLI one-time sign-in link for when email is off
-- [ ] Multi-home data model (homes and memberships), with one home in the UI
-- [ ] Fixed roles and the `can()` permission helper, with tests that try to cross between homes
+- [x] BetterAuth: magic-link sign-in (no open sign-up, D26), passkeys and sessions; a CLI one-time sign-in link for when email is off
+- [x] Multi-home data model (homes and memberships), with one home in the UI
+- [x] Fixed roles and the `can()` permission helper, with tests that try to cross between homes
 - [ ] Invite links: copyable, single use, expiring, carrying a role
 - [ ] Claude Code skill for adding a data-access function (home scoping, `can()` check, isolation test), written once the first few exist
 - [ ] Rooms and plants: create, edit, list, plant page

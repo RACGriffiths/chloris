@@ -1,6 +1,8 @@
 # Example Docker Compose setup. Copy this file to compose.yaml and .env.example to .env next to
 # it, fill in .env, then run: docker compose up -d --build
 # Put an HTTPS reverse proxy (Caddy, a tunnel, ...) in front: passkeys need a real domain.
+# Then make the first account and open the link it prints:
+#   docker compose exec chloris node build/cli sign-in-link you@example.com
 services:
   chloris:
     build: .

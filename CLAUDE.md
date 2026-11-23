@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done; version 1 in [docs/roadmap.md](docs/roadmap.md) is next.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes and roles are in.
 
 ## Read first
 
@@ -34,20 +34,35 @@ Folders marked *(v1)* don't exist yet.
 ```
 src/
   env.ts          declares the environment variables for $app/env/private
-  hooks.server.ts start-up: validate config, open the database, migrate
+  hooks.server.ts start-up (config, database, migrations, auth); per request: session, auth routes
+  cli.ts          entry point of the command-line tool, built to build/cli
   lib/server/
     config.ts     config validation (Zod), free of SvelteKit imports
     db/           Drizzle schema, client, migrations (applied at start-up after a backup)
-    data/         home-scoped queries, the only place that touches domain tables (v1)
-    auth/         BetterAuth setup (v1)
-    permissions/  roles, permissions, can() (v1)
+    data/         home-scoped queries, the only place that touches domain tables
+    auth/         BetterAuth setup, sign-in links, which auth endpoints the browser may reach
+    permissions/  roles, can(), requirePermission()
+    notify/       mailer (push in v2)
+    cli.ts        the command-line tool's commands
+    testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
     photos/       upload pipeline, storage, serving (v1)
     jobs/         scheduler, digests, photo clean-up (v1)
-    notify/       push and mailer (v1)
+  lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte@latest add <name>)
   routes/
+    (entry)/      sign-in, sign-in links, adding a first passkey, creating a home
+    (app)/        the signed-in app: the home page and the account page
 tests/            Playwright end-to-end tests (*.e2e.ts)
 ```
+
+Folders in brackets are SvelteKit route groups: they share a layout but don't appear in URLs.
+
+### Sign-in and permissions
+
+- There is no open sign-up (D26). The first account comes from `node build/cli sign-in-link <email>`; later ones from invites. Only accounts the command-line tool made or allowed may create a home.
+- The browser reaches only BetterAuth's passkey endpoints (D27, `src/lib/server/auth/http.ts`). Pages call the rest of BetterAuth on the server with `getAuth().api.*` and `authHeaders(event)`; homes and memberships change only through the data layer.
+- `locals.user` is the signed-in user or `null`. Use `requireUser(locals)` for pages that need one, then `requirePermission(user, homeId, permission)`: it answers 404 to outsiders and 403 to members without the permission.
+- Read form fields with `textField(form, name)` from `#lib/server/forms.js`, and validate them with the Zod schema the data layer exports.
 
 Unit tests sit next to the code as `*.spec.ts`. ESLint stops `src/routes/` from importing the database (rule 1).
 
@@ -63,13 +78,14 @@ Much SvelteKit material online describes version 2. In this project:
 
 ## Commands
 
-First time: `npm install`, `cp .env.example .env` and set `BETTER_AUTH_SECRET`, and `npx playwright install chromium` for the end-to-end tests.
+First time: `npm install`, `cp .env.example .env` and set `BETTER_AUTH_SECRET`, and `npx playwright install chromium` for the end-to-end tests. To sign in locally, run `npm run build` and `npm run cli -- sign-in-link you@example.com`, then open the link with `npm run dev` running (the link uses `ORIGIN`).
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Development server on http://localhost:5173, reading `.env` |
-| `npm run build` | Production build into `build/` |
+| `npm run build` | Production build into `build/`, with the command-line tool in `build/cli` |
 | `npm start` | Runs the production build (`node build`), reading `.env` if present |
+| `npm run cli -- sign-in-link <email>` | Prints a one-time sign-in link, creating the account if needed (after `npm run build`) |
 | `npm run check` | Type-check with svelte-check |
 | `npm run lint` | Prettier check, then ESLint |
 | `npm run format` | Format everything with Prettier |
