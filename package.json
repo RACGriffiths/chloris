@@ -61,9 +61,11 @@
 		"vitest": "^5.1.0"
 	},
 	"dependencies": {
+		"@better-auth/passkey": "^1.7.27",
 		"better-auth": "^1.7.27",
 		"better-sqlite3": "^13.2.0",
 		"drizzle-orm": "^0.45.4",
+		"nodemailer": "^10.6.1",
 		"zod": "^4.6.7"
 	},
 	"allowScripts": {
