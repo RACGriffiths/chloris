@@ -10,9 +10,9 @@ A self-hosted plant care tracker for households. **Status:** design done, no cod
 
 ## Stack
 
-SvelteKit (TypeScript strict, `@sveltejs/adapter-node`) · Tailwind CSS with shadcn-svelte or Bits UI · SQLite (WAL) with Drizzle ORM and drizzle-kit migrations · BetterAuth (passkey, magic link and organization plugins, Drizzle adapter) · Zod · sharp · croner · web-push · Nodemailer · @vite-pwa/sveltekit · Vitest · Playwright.
+SvelteKit (TypeScript strict, `@sveltejs/adapter-node`) · Tailwind CSS with shadcn-svelte (built on Bits UI) · SQLite (WAL) via better-sqlite3, with Drizzle ORM and drizzle-kit migrations · BetterAuth (passkey, magic link and organization plugins, Drizzle adapter) · Zod · sharp · croner · web-push · Nodemailer · @vite-pwa/sveltekit · Vitest · Playwright.
 
-Use the current Node LTS. Don't add a dependency without a clear reason; keep the list short.
+Use the current Node LTS and npm. Dependabot handles dependency updates. Don't add a dependency without a clear reason; keep the list short.
 
 ## Rules that must not be broken
 

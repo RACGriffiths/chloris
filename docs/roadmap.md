@@ -6,16 +6,16 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 
 ## Phase 0: Foundations
 
-- [ ] Scaffold SvelteKit with TypeScript (strict) and the Node adapter
-- [ ] Tailwind CSS and a component kit (shadcn-svelte or Bits UI)
+- [ ] Scaffold SvelteKit with TypeScript (strict) and the Node adapter, using npm
+- [ ] Tailwind CSS and shadcn-svelte
 - [ ] ESLint, Prettier and svelte-check
 - [ ] Vitest and Playwright
-- [ ] Drizzle with SQLite in WAL mode; migrations run at start-up after a backup
+- [ ] Drizzle with SQLite (better-sqlite3) in WAL mode; migrations run at start-up after a backup
 - [ ] Claude Code hook that blocks edits to migrations already committed
 - [ ] Load and validate configuration (Zod) for the variables in the [spec](spec.md#configuration)
 - [ ] Dockerfile and an example Compose file
 - [ ] GitHub Actions CI: type-check, lint, test, build the image
-- [ ] Automated dependency updates (Renovate or Dependabot)
+- [ ] Dependabot for dependency updates, with minor and patch updates grouped weekly
 
 ## Version 1: useful every day, in one home
 

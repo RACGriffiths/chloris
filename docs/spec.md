@@ -61,8 +61,8 @@ Everything is TypeScript in one SvelteKit project that builds to a single Node s
 | Layer | Choice | Why |
 | --- | --- | --- |
 | App framework | SvelteKit with the Node adapter | Pages and API in one codebase; components read like HTML; pages render on the server, so they load fast on a phone. |
-| UI | Tailwind CSS plus a small component kit (shadcn-svelte or Bits UI) | A clean, consistent look without designing every control by hand. |
-| Database | SQLite in WAL mode, via Drizzle ORM | One file, easy backups; Drizzle gives typed queries and versioned migrations. |
+| UI | Tailwind CSS plus shadcn-svelte components (built on Bits UI) | A clean, consistent look without designing every control by hand. The components live in the repository, so they can be adjusted. |
+| Database | SQLite in WAL mode, via Drizzle ORM and better-sqlite3 | One file, easy backups; Drizzle gives typed queries and versioned migrations. better-sqlite3's online backup copies the database while the app runs. |
 | Login and roles | BetterAuth: passkey, magic link and organisation plugins, with its Drizzle adapter | Passwordless login; a home maps onto an organisation with roles and invites. |
 | Validation | Zod, shared by forms and API | One definition of valid input, checked on both sides. |
 | Images | sharp (libvips) on the server; resizing in the browser before upload | Fast thumbnails and size variants; smaller uploads on mobile data. |
@@ -72,6 +72,7 @@ Everything is TypeScript in one SvelteKit project that builds to a single Node s
 | Installable app | @vite-pwa/sveltekit | Home-screen install, a service worker for push, an offline app shell. |
 | Tests | Vitest for units and the permission layer; Playwright end to end | Permission bugs are the ones that would really hurt. |
 | Packaging | Docker image plus a plain Node install | Runs in an LXC today and on anyone's Docker host later. |
+| Tooling | npm, with Dependabot for dependency updates | npm comes with Node, so nothing else needs installing; Dependabot is built into GitHub. |
 
 ## Data model
 
@@ -215,7 +216,7 @@ The app should be safe to put on the internet from its first release. The two bi
 - **Content Security Policy.** Scripts load only from the app itself.
 - **Audit log.** Logins, invites, role changes, exports and deletions are recorded.
 - **Secrets.** The auth secret, VAPID keys and SMTP credentials come from environment variables, never from the code or the repository.
-- **Upkeep.** Automated dependency updates, and CI that type-checks, lints and runs the tests on every change.
+- **Upkeep.** Automated dependency updates through Dependabot, and CI that type-checks, lints and runs the tests on every change.
 - **Backups.** The built-in backup command, plus host-level snapshots. Restores get tested.
 - **Per-user data.** Each person can export their data and delete their account.
 
