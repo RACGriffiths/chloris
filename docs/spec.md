@@ -33,7 +33,7 @@ flowchart LR
 
 - **Configurable storage.** The database lives in `DATA_DIR` and photos in `PHOTOS_DIR`. Photos can sit on a mounted drive while the database stays on local disk.
 - **HTTPS at the proxy.** The app listens on a local port, and whoever hosts it chooses the proxy. Passkeys and push need a real domain with a valid certificate, even on a LAN.
-- **Email is optional.** Without SMTP settings, magic links and email digests are switched off. A command-line tool then prints a one-time sign-in link to set up the first account.
+- **Email is optional.** Without SMTP settings, emailed sign-in links and email digests are switched off. A command-line tool prints one-time sign-in links instead; it also creates the first account.
 - **Upgrades.** Database migrations run at start-up, after an automatic backup of the database to `$DATA_DIR/backups`. If the configuration is invalid or a migration fails, the app refuses to start.
 - **Health check.** `GET /api/health` reports whether the database is answering, for Docker and uptime monitors. It reveals nothing else.
 - **Same build everywhere.** The Docker image and a plain Node install run the same code, configured by environment variables.
@@ -81,9 +81,9 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 
 | Entity | Belongs to | Key fields | Notes |
 | --- | --- | --- | --- |
-| User | — | Email, display name, passkeys, sessions | Managed by BetterAuth. |
+| User | — | Email, display name, passkeys, sessions, may create a home | Managed by BetterAuth. Only the command-line tool lets an account create a home. |
 | Home | — | Name, time zone, winter months | A BetterAuth organisation. |
-| Membership | User + home | Role, expires on | Expiry is used for sitters. |
+| Membership | User + home | Role, expires at | Expiry is used for sitters. |
 | Room | Home | Name, indoor or outdoor, light level | Light: low, medium, bright, direct sun. |
 | Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. |
 | Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, repot, prune, mist, pest treatment, move, checked. A check records which task it was for. |
@@ -98,35 +98,39 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 
 ## Authentication and access control
 
-Passkeys are the main way in, with magic links as the fallback, and no passwords are stored. Each home has four fixed roles, and the server checks every request against the role's permissions.
+Passkeys are the main way in, with one-time sign-in links (magic links) as the fallback, and no passwords are stored. Each home has four fixed roles, and the server checks every request against the role's permissions.
 
 ### Login
 
-- New users sign up with a magic link, which proves the email address, or by opening an invite link. Either way, they are then prompted to add a passkey.
+- There is no open sign-up. Accounts are created by the command-line tool or by opening an invite link, and after their first sign-in people are prompted to add a passkey.
+- Only an account the command-line tool created, or later allowed, can create a home, and it becomes the home's owner. An account that joined by invite never can, even if it later has no home (an expired sitter, a removed member): it is told it doesn't have access to a home.
 - Passkey sign-in offers autofill on the email field where the browser supports it.
-- Magic links cover new devices and account recovery. Each link works once and expires quickly.
-- Settings lists every passkey and session, and any of them can be revoked.
-- Sessions use secure, HTTP-only cookies.
-- With email switched off, a CLI command prints a one-time sign-in link instead.
+- Emailed sign-in links cover new devices and account recovery. The email form only signs in existing accounts, and answers the same whether or not an address has one.
+- Each sign-in link works once and expires after 15 minutes. It opens a page with a "Sign in" button rather than signing in straight away, so mail scanners that open links can't use it up.
+- The command-line tool prints a sign-in link for any address, creating the account if there isn't one. It sets up the first account, and gets people back in when email is off.
+- Sessions last 30 days and are renewed while in use. Settings lists every passkey and session, and any of them can be revoked.
+- Sessions use secure, HTTP-only, SameSite=Lax cookies.
 
 ### Roles in a home
 
-| Permission | Owner | Carer | Viewer | Sitter |
-| --- | --- | --- | --- | --- |
-| See plants, photos and history | Yes | Yes | Yes | Yes |
-| Log care and snooze tasks | Yes | Yes | No | Yes |
-| Add photos and measurements | Yes | Yes | No | Yes |
-| Add, edit and memorialise plants | Yes | Yes | No | No |
-| Manage rooms, schedules and measurement types | Yes | Yes | No | No |
-| Invite and remove members, change roles | Yes | No | No | No |
-| Export or delete the home | Yes | No | No | No |
+| Permission | In `can()` | Owner | Carer | Viewer | Sitter |
+| --- | --- | --- | --- | --- | --- |
+| See plants, photos and history | `home:view` | Yes | Yes | Yes | Yes |
+| Log care and snooze tasks | `care:log` | Yes | Yes | No | Yes |
+| Add photos and measurements | `photo:add`, `measurement:add` | Yes | Yes | No | Yes |
+| Add, edit and memorialise plants | `plant:edit` | Yes | Yes | No | No |
+| Manage rooms, schedules and measurement types | `home:configure` | Yes | Yes | No | No |
+| Change the home's name, time zone and winter months | `home:update` | Yes | No | No | No |
+| Invite and remove members, change roles | `member:manage` | Yes | No | No | No |
+| Export or delete the home | `home:export`, `home:delete` | Yes | No | No | No |
 
-A sitter's access ends automatically on its expiry date. A home can have more than one owner.
+A sitter's access ends automatically on its expiry date: an expired membership grants nothing. A home can have more than one owner.
 
 ### How it is enforced
 
 - A home is a [BetterAuth organisation](https://www.better-auth.com/docs/plugins/organization), with these roles defined through its access-control API.
 - Every server route and form action calls one helper, `can(user, homeId, permission)`. Nothing checks a role name directly, so custom roles can be added later without touching the checks.
+- The browser can reach only BetterAuth's passkey endpoints. The app's own pages and form actions call the rest of BetterAuth on the server, and homes and memberships change only through the data-access layer, after `can()`.
 - The UI hides actions you can't take, but the server is the only authority.
 - Invitations carry a role, work once and expire. Each is a link the inviter can copy and share any way they like, so inviting works without email. When email is on, the link can also be sent by email.
 
