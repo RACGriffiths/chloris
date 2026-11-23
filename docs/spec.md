@@ -34,24 +34,25 @@ flowchart LR
 - **Configurable storage.** The database lives in `DATA_DIR` and photos in `PHOTOS_DIR`. Photos can sit on a mounted drive while the database stays on local disk.
 - **HTTPS at the proxy.** The app listens on a local port, and whoever hosts it chooses the proxy. Passkeys and push need a real domain with a valid certificate, even on a LAN.
 - **Email is optional.** Without SMTP settings, magic links and email digests are switched off. A command-line tool then prints a one-time sign-in link to set up the first account.
-- **Upgrades.** Database migrations run at start-up, after an automatic backup.
+- **Upgrades.** Database migrations run at start-up, after an automatic backup of the database to `$DATA_DIR/backups`. If the configuration is invalid or a migration fails, the app refuses to start.
+- **Health check.** `GET /api/health` reports whether the database is answering, for Docker and uptime monitors. It reveals nothing else.
 - **Same build everywhere.** The Docker image and a plain Node install run the same code, configured by environment variables.
 
 ## Configuration
 
-All configuration comes from environment variables. `ORIGIN`, `PORT`, `HOST`, `BODY_SIZE_LIMIT`, `ADDRESS_HEADER` and `XFF_DEPTH` are read by SvelteKit's [Node adapter](https://svelte.dev/docs/kit/adapter-node). `BETTER_AUTH_SECRET` is [BetterAuth's](https://www.better-auth.com/docs/installation). The other names are Chloris's own and provisional until the code exists.
+All configuration comes from environment variables. `ORIGIN`, `PORT`, `HOST`, `BODY_SIZE_LIMIT`, `ADDRESS_HEADER` and `XFF_DEPTH` are read by SvelteKit's [Node adapter](https://svelte.dev/docs/kit/adapter-node). `BETTER_AUTH_SECRET` is [BetterAuth's](https://www.better-auth.com/docs/installation). The others are Chloris's own. They are all validated together at start-up, and an empty value counts as unset.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ORIGIN` | required | Public HTTPS address, e.g. `https://plants.example.com`. Also used as the passkey domain and in links in emails and notifications. |
+| `ORIGIN` | required | Public HTTPS address, e.g. `https://plants.example.com`, with no path or trailing slash. Also used as the passkey domain and in links in emails and notifications. Plain `http://` is accepted only for `localhost`, for development. |
 | `PORT`, `HOST` | `3000`, `0.0.0.0` | Where the Node server listens. |
 | `BETTER_AUTH_SECRET` | required | Secret for signing sessions and tokens: at least 32 random characters. |
 | `DATA_DIR` | `./data` | Folder holding the SQLite database. |
 | `PHOTOS_DIR` | `$DATA_DIR/photos` | Folder holding photo files. Can be a mounted drive. |
 | `BODY_SIZE_LIMIT` | adapter default `512kb` | Maximum request size. Must be raised for photo uploads; the Docker image sets `25M`. |
 | `ADDRESS_HEADER`, `XFF_DEPTH` | not set | Which header carries the visitor's IP behind a proxy, and how many trusted proxies are in front. Needed for rate limiting. Behind one Caddy: `X-Forwarded-For` and `1`. Check the values against the real proxy chain, because these headers can be spoofed. |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | not set | Outgoing email. Leave unset to switch email off. |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | not set | Web push keys, generated once with a CLI command. Push is off without them. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | not set; port `587` | Outgoing email. Leave unset to switch email off. Needs at least the host and sender; the user and password go together. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | not set | Web push keys, generated once with a CLI command. Push is off without them; set all three or none. The subject is a `mailto:` or `https://` URL. |
 | `PHOTO_DELETE_GRACE_DAYS` | `30` | How long a deleted photo's files stay on disk. See [Photos and backups](#photos-and-backups). |
 
 ## Tech stack

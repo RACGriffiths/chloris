@@ -1,0 +1,66 @@
+name: Docker image
+
+# Checks that the image still builds and starts. Nothing is pushed: publishing images for
+# releases is a separate workflow (see the roadmap). To save Actions minutes (D25), this only
+# runs when something that shapes the image changes; it can also be started by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - package.json
+      - package-lock.json
+      - .github/workflows/image.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - package.json
+      - package-lock.json
+      - .github/workflows/image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build and start the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: chloris:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start the image and wait for its health check
+        run: |
+          docker run -d --name chloris \
+            -e ORIGIN=http://localhost:3000 \
+            -e BETTER_AUTH_SECRET=ci-smoke-test-only-not-a-real-secret \
+            chloris:ci
+          for attempt in $(seq 1 30); do
+            read -r state health <<< "$(docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' chloris)"
+            if [ "$health" = healthy ]; then
+              echo "The container is healthy."
+              exit 0
+            fi
+            if [ "$state" != running ] || [ "$health" = unhealthy ]; then break; fi
+            sleep 2
+          done
+          echo "::error::The container did not become healthy (state: $state, health: $health)."
+          docker logs chloris
+          exit 1

@@ -1,0 +1,36 @@
+# Example Docker Compose setup. Copy this file to compose.yaml and .env.example to .env next to
+# it, fill in .env, then run: docker compose up -d --build
+# Put an HTTPS reverse proxy (Caddy, a tunnel, ...) in front: passkeys need a real domain.
+services:
+  chloris:
+    build: .
+    image: chloris:local
+    restart: unless-stopped
+    ports:
+      # Reachable only from this machine, where the proxy runs. If the proxy is on another
+      # machine, use "3000:3000" and firewall the port so only the proxy can reach it.
+      - '127.0.0.1:3000:3000'
+    environment:
+      ORIGIN: ${ORIGIN:?Set ORIGIN in .env}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      ADDRESS_HEADER: ${ADDRESS_HEADER:-}
+      XFF_DEPTH: ${XFF_DEPTH:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      PHOTO_DELETE_GRACE_DAYS: ${PHOTO_DELETE_GRACE_DAYS:-}
+      # To keep photos on another drive, uncomment this and the matching volume below.
+      # PHOTOS_DIR: /photos
+    volumes:
+      # The database (and, by default, photos) in a named volume.
+      - chloris-data:/data
+      # A folder on another drive for photos. It must be writable by user ID 1000.
+      # - /mnt/photos/chloris:/photos
+
+volumes:
+  chloris-data:

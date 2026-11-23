@@ -4,7 +4,7 @@ A self-hosted plant care tracker for households: a care log, watering schedules 
 
 Named after Chloris, the Greek nymph of flowers.
 
-> **Status: design phase.** There is no code yet. The [design spec](docs/spec.md), [decision log](docs/decisions.md) and [roadmap](docs/roadmap.md) describe what is being built.
+> **Status: early development.** The foundations are in place, but the app doesn't do anything useful yet. The [design spec](docs/spec.md), [decision log](docs/decisions.md) and [roadmap](docs/roadmap.md) describe what is being built.
 
 ## What it will do
 
@@ -18,9 +18,9 @@ Named after Chloris, the Greek nymph of flowers.
 - **Reminders.** One daily digest per person, by web push or email.
 - **Your data stays yours.** A SQLite file and a folder of photos, with full export.
 
-## Planned stack
+## Stack
 
-SvelteKit (TypeScript, Node adapter), SQLite with Drizzle ORM, BetterAuth, sharp for images, Web Push and SMTP via Nodemailer. It runs as a single Node process or Docker container and needs no paid or provider-specific services. See [docs/spec.md](docs/spec.md#tech-stack) for the reasons behind each choice.
+SvelteKit (TypeScript, Node adapter), Tailwind CSS with shadcn-svelte, SQLite with Drizzle ORM, BetterAuth, sharp for images, Web Push and SMTP via Nodemailer. It runs as a single Node process or Docker container and needs no paid or provider-specific services. See [docs/spec.md](docs/spec.md#tech-stack) for the reasons behind each choice.
 
 ## Self-hosting (planned)
 
@@ -28,6 +28,20 @@ SvelteKit (TypeScript, Node adapter), SQLite with Drizzle ORM, BetterAuth, sharp
 - Put an HTTPS reverse proxy in front of it (Caddy, a Cloudflare Tunnel or similar). Passkeys and push notifications need a real domain with a valid certificate.
 - The database and photos live in folders you choose, so photos can sit on a separate drive.
 - Email (SMTP) is optional.
+
+[.env.example](.env.example) lists the settings, and [compose.example.yaml](compose.example.yaml) is a starting point for Docker Compose. Install guides will follow with version 1.
+
+## Development
+
+You need the current Node LTS (see [.nvmrc](.nvmrc)).
+
+```sh
+npm install
+cp .env.example .env   # then set BETTER_AUTH_SECRET
+npm run dev            # http://localhost:5173
+```
+
+[CLAUDE.md](CLAUDE.md#commands) lists the other commands: checks, tests, migrations.
 
 ## Documentation
 

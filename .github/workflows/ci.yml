@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel a run when a newer commit arrives on the same branch, to save Actions minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Type-check, lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the migration check compares with earlier commits
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Committed migrations are unchanged
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "No earlier commit to compare with."
+            exit 0
+          fi
+          changed=$(git diff --name-only --diff-filter=DMR "$BASE" HEAD -- \
+            'src/lib/server/db/migrations/*.sql' 'src/lib/server/db/migrations/meta/*_snapshot.json')
+          if [ -n "$changed" ]; then
+            echo "::error::Committed migrations must never be changed, renamed or deleted (CLAUDE.md rule 7):"
+            echo "$changed"
+            exit 1
+          fi
+
+      - name: Migrations match the schema
+        run: |
+          npx drizzle-kit generate
+          if [ -n "$(git status --porcelain -- src/lib/server/db/migrations)" ]; then
+            echo "::error::schema.ts has changes with no migration. Run npm run db:generate and commit the result."
+            exit 1
+          fi
+
+      - run: npm run check
+      - run: npm run lint
+      - run: npm run test:unit -- --run
+      - run: npm run build
+
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

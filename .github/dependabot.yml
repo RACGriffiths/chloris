@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Wait a few days after a release before proposing it, so a compromised version is
+    # likely to have been caught and withdrawn first.
+    cooldown:
+      default-days: 3
+    groups:
+      # Minor and patch updates arrive together in one pull request a week (decision D24).
+      # Major updates get a pull request each.
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

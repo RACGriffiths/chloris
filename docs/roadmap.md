@@ -6,16 +6,16 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 
 ## Phase 0: Foundations
 
-- [ ] Scaffold SvelteKit with TypeScript (strict) and the Node adapter, using npm
-- [ ] Tailwind CSS and shadcn-svelte
-- [ ] ESLint, Prettier and svelte-check
-- [ ] Vitest and Playwright
-- [ ] Drizzle with SQLite (better-sqlite3) in WAL mode; migrations run at start-up after a backup
-- [ ] Claude Code hook that blocks edits to migrations already committed
-- [ ] Load and validate configuration (Zod) for the variables in the [spec](spec.md#configuration)
-- [ ] Dockerfile and an example Compose file
-- [ ] GitHub Actions CI: type-check, lint, test, build the image
-- [ ] Dependabot for dependency updates, with minor and patch updates grouped weekly
+- [x] Scaffold SvelteKit with TypeScript (strict) and the Node adapter, using npm
+- [x] Tailwind CSS and shadcn-svelte
+- [x] ESLint, Prettier and svelte-check
+- [x] Vitest and Playwright
+- [x] Drizzle with SQLite (better-sqlite3) in WAL mode; migrations run at start-up after a backup
+- [x] Claude Code hook that blocks edits to migrations already committed
+- [x] Load and validate configuration (Zod) for the variables in the [spec](spec.md#configuration)
+- [x] Dockerfile and an example Compose file
+- [x] GitHub Actions CI: type-check, lint, test, build the image
+- [x] Dependabot for dependency updates, with minor and patch updates grouped weekly
 
 ## Version 1: useful every day, in one home
 
@@ -34,6 +34,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [ ] Backup command and integrity check
 - [ ] Security baseline: CSP, rate limits, audit log
 - [ ] Install guides for an LXC and for Docker
+- [ ] Release workflow: on a version tag, build the Docker image for x86 and ARM and publish it to GitHub's container registry
 - [ ] About page with the version and a source-code link (AGPL)
 
 ## Version 2: sharing and push
