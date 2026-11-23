@@ -9,6 +9,7 @@
 		"tests",
 		".claude/hooks",
 		"vite.config.ts",
+		"vite.cli.config.ts",
 		"prettier.config.js",
 		"eslint.config.js",
 		"playwright.config.ts",
