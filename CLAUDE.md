@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes and roles are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles and invite links are in.
 
 ## Read first
 
@@ -51,9 +51,9 @@ src/
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
                       change package versions, so check package.json afterwards)
   routes/
-    (entry)/      sign-in, sign-in links, adding a first passkey, creating a home
-    (app)/        the signed-in app: the home page and the account page
-tests/            Playwright end-to-end tests (*.e2e.ts)
+    (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
+    (app)/        the signed-in app: the home page, members and invites, the account page
+tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
 ```
 
 Folders in brackets are SvelteKit route groups: they share a layout but don't appear in URLs.
@@ -61,6 +61,7 @@ Folders in brackets are SvelteKit route groups: they share a layout but don't ap
 ### Sign-in and permissions
 
 - There is no open sign-up (D26). The first account comes from `node build/cli sign-in-link <email>`; later ones from invites. Only accounts the command-line tool made or allowed may create a home.
+- Invite links (D28) are Chloris's own, in `#lib/server/data/invites.js`; only a hash of each token is stored. Someone without an account joins through `getAuth().api.joinWithInvite()` (`src/lib/server/auth/invites.ts`), a server-only BetterAuth endpoint that creates the account and membership in one transaction and signs it in. BetterAuth's `invitation` table is unused.
 - The browser reaches only BetterAuth's passkey endpoints (D27, `src/lib/server/auth/http.ts`). Pages call the rest of BetterAuth on the server with `getAuth().api.*` and `authHeaders(event)`; homes and memberships change only through the data layer.
 - `locals.user` is the signed-in user or `null`. Use `requireUser(locals)` for pages that need one, then `requirePermission(user, homeId, permission)`: it answers 404 to outsiders and 403 to members without the permission.
 - Read form fields with `textField(form, name)` from `#lib/server/forms.js`, and validate them with the Zod schema the data layer exports.

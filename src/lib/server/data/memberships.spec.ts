@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addMember, insertUser, useTestDatabase } from '../testing';
 import { createHome } from './homes';
-import { getMembership, isActive } from './memberships';
+import { getMembership, isActive, listMembers } from './memberships';
 
 useTestDatabase();
 
@@ -44,5 +44,35 @@ describe('isActive', () => {
 	it('is false from the moment of expiry', () => {
 		expect(isActive({ expiresAt: now }, now)).toBe(false);
 		expect(isActive({ expiresAt: new Date('2026-05-01T00:00:00Z') }, now)).toBe(false);
+	});
+});
+
+describe('listMembers', () => {
+	it("lists only the home's own members, never another's", () => {
+		const alice = insertUser('alice@example.com');
+		const bob = insertUser('bob@example.com');
+		const carol = insertUser('carol@example.com');
+		const alices = createHome(alice, { name: "Alice's", timeZone: 'Europe/London' });
+		const bobs = createHome(bob, { name: "Bob's", timeZone: 'Europe/Paris' });
+		addMember(alices.id, carol, 'viewer', { createdAt: new Date(Date.now() + 1000) });
+
+		expect(listMembers(alices.id)).toEqual([
+			{ userId: alice, name: 'alice', email: 'alice@example.com', role: 'owner' },
+			{ userId: carol, name: 'carol', email: 'carol@example.com', role: 'viewer' }
+		]);
+		expect(listMembers(bobs.id)).toEqual([
+			{ userId: bob, name: 'bob', email: 'bob@example.com', role: 'owner' }
+		]);
+	});
+
+	it('leaves out memberships that have expired', () => {
+		const alice = insertUser('alice@example.com');
+		const sitter = insertUser('sitter@example.com');
+		const home = createHome(alice, { name: "Alice's", timeZone: 'Europe/London' });
+		const now = new Date();
+		addMember(home.id, sitter, 'sitter', { expiresAt: new Date(now.getTime() + 1000) });
+
+		expect(listMembers(home.id, now)).toHaveLength(2);
+		expect(listMembers(home.id, new Date(now.getTime() + 2000))).toHaveLength(1);
 	});
 });

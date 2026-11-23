@@ -1,5 +1,8 @@
 <script lang="ts">
 	import SproutIcon from '@lucide/svelte/icons/sprout';
+	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
+	import { resolve } from '$app/paths';
+	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import type { PageProps } from './$types';
 
@@ -13,6 +16,12 @@
 {#if data.home}
 	<p class="text-sm text-muted-foreground">Your home</p>
 	<h1 class="text-2xl font-semibold tracking-tight">{data.home.name}</h1>
+	{#if data.canManageMembers}
+		<Button href={resolve('members')} variant="outline" class="mt-4 h-11">
+			<UserPlusIcon />
+			Invite someone
+		</Button>
+	{/if}
 
 	<Card.Root class="mt-6">
 		<Card.Header>

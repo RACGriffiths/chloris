@@ -4,7 +4,8 @@ import { passkey, user } from '../db/schema';
 
 /**
  * Reads about accounts that BetterAuth doesn't offer directly. BetterAuth itself creates and
- * changes accounts, so nothing here writes to them.
+ * changes accounts, so nothing here writes to them. The one exception is an account made from an
+ * invite link, which `./invites` creates in the same transaction as its membership.
  */
 
 /** Whether an account exists for `email`. BetterAuth stores emails in lower case. */

@@ -1,50 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { expect, test, type Page } from '@playwright/test';
-import { serverEnv } from './server-env';
-
-/** Runs the built command-line tool against the test server's database and returns the link. */
-function signInLink(email: string): string {
-	const output = execFileSync(process.execPath, ['build/cli', 'sign-in-link', email], {
-		env: { ...process.env, ...serverEnv },
-		encoding: 'utf8'
-	});
-	const url = /^\s+(http\S+)$/m.exec(output)?.[1];
-	if (!url) throw new Error(`No sign-in link in:\n${output}`);
-	return url;
-}
-
-let accounts = 0;
-/** A new address for each test, since the tests share one database. */
-const newEmail = (name: string) => `${name}-${Date.now()}-${++accounts}@example.com`;
-
-/** A passkey authenticator built into the browser, which always says yes. */
-async function addVirtualAuthenticator(page: Page) {
-	const cdp = await page.context().newCDPSession(page);
-	await cdp.send('WebAuthn.enable');
-	return cdp.send('WebAuthn.addVirtualAuthenticator', {
-		options: {
-			protocol: 'ctap2',
-			transport: 'internal',
-			hasResidentKey: true,
-			hasUserVerification: true,
-			isUserVerified: true,
-			automaticPresenceSimulation: true
-		}
-	});
-}
-
-async function useLink(page: Page, link: string) {
-	await page.goto(link);
-	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-}
-
-async function createHome(page: Page, name: string) {
-	await expect(page.getByRole('heading', { name: 'Set up your home' })).toBeVisible();
-	await page.getByLabel('Name').fill(name);
-	await page.getByLabel('Time zone').selectOption('Europe/London');
-	await page.getByRole('button', { name: 'Create home' }).click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
-}
+import { expect, test } from '@playwright/test';
+import { addVirtualAuthenticator, createHome, newEmail, signInLink, useLink } from './helpers';
 
 test('the first owner signs in with a link, adds a passkey, then signs in with it', async ({
 	page
