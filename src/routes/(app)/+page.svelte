@@ -34,8 +34,7 @@
 				<Card.Title>Nothing to look after yet</Card.Title>
 				<Card.Description>
 					{#if data.canEditPlants}
-						Add your plants, room by room. Once care logging arrives, this page will show what needs
-						watering today.
+						Add your plants, room by room, then give each a schedule, such as watering every week.
 					{:else}
 						Nobody has added any plants yet.
 					{/if}
@@ -57,7 +56,8 @@
 					{count(data.home.roomCount, 'room', 'rooms')}
 				</Card.Title>
 				<Card.Description>
-					Once care logging arrives, this page will show what needs watering today.
+					Each plant's page shows when its care is due. Soon this page will gather what needs doing
+					today.
 				</Card.Description>
 			</Card.Header>
 			<Card.Footer>
