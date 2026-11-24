@@ -5,8 +5,14 @@ import { SIGN_IN_LINK_MINUTES } from './auth/index';
 import { createCommandLineSignInLink } from './auth/sign-in-link';
 import { BackupError, makeBackup } from './backup/backup';
 import { checkIntegrity, type MissingPhoto } from './backup/check';
+import { describeServerEntry } from '../audit';
+import { describeUserAgent } from '../devices';
 import { ConfigError, parseConfig, type Config, type Env } from './config';
+import { listServerEvents, recordServerEvent } from './data/server-log';
 import { closeDatabase, getConnection, initDatabase, openExistingDatabase } from './db';
+
+/** How many entries `log` prints unless told otherwise. */
+const DEFAULT_LOG_LIMIT = 50;
 
 /**
  * Chloris's command-line tool, built to `build/cli` by `npm run build`. It reads the same
@@ -32,7 +38,13 @@ check
   Checks the database for damage, and that every photo it lists has its files in the
   photo folder. Lists files that belong to no photo. Changes nothing.
 
-All three can run while the server is running. Exit status: 0 if all went well, 1 if
+log [--limit <n>]
+  Prints the server's own log, the latest first: sign-ins and passkey changes with where
+  they came from, sign-ins that failed, rate limits used up, and sign-in links printed
+  here. What happens in each home is in its audit log, which its owners see in the app.
+    --limit <n>          How many entries to print (default ${DEFAULT_LOG_LIMIT})
+
+All four can run while the server is running. Exit status: 0 if all went well, 1 if
 it failed or found a problem, 2 if the command was wrong.`;
 
 export interface Output {
@@ -44,11 +56,17 @@ export interface Output {
 const COMMAND_OPTIONS: Record<string, string[]> = {
 	'sign-in-link': ['name', 'can-create-home'],
 	backup: ['keep'],
-	check: []
+	check: [],
+	log: ['limit']
 };
 
 /** How many arguments each command takes, after its name. */
-const COMMAND_ARGUMENTS: Record<string, number> = { 'sign-in-link': 1, backup: 1, check: 0 };
+const COMMAND_ARGUMENTS: Record<string, number> = {
+	'sign-in-link': 1,
+	backup: 1,
+	check: 0,
+	log: 0
+};
 
 /** Runs one command and returns the exit code. */
 export async function main(args: string[], env: Env, out: Output = console): Promise<number> {
@@ -61,6 +79,7 @@ export async function main(args: string[], env: Env, out: Output = console): Pro
 				name: { type: 'string' },
 				'can-create-home': { type: 'boolean' },
 				keep: { type: 'string' },
+				limit: { type: 'string' },
 				help: { type: 'boolean', short: 'h' }
 			}
 		});
@@ -83,11 +102,14 @@ export async function main(args: string[], env: Env, out: Output = console): Pro
 		out.error(USAGE);
 		return 2;
 	}
-	let keep: number | undefined;
-	if (values.keep !== undefined) {
-		keep = /^\d+$/.test(values.keep) ? Number(values.keep) : 0;
-		if (keep < 1) {
-			out.error(`--keep must be a whole number of at least 1.\n\n${USAGE}`);
+	const keep = wholeNumber(values.keep);
+	const limit = wholeNumber(values.limit) ?? DEFAULT_LOG_LIMIT;
+	for (const [name, value] of [
+		['keep', keep],
+		['limit', limit]
+	] as const) {
+		if (value !== undefined && value < 1) {
+			out.error(`--${name} must be a whole number of at least 1.\n\n${USAGE}`);
 			return 2;
 		}
 	}
@@ -99,6 +121,7 @@ export async function main(args: string[], env: Env, out: Output = console): Pro
 		}
 		openExistingDatabase(config.dataDir);
 		if (command === 'backup') return await backup(config, rest[0], keep, out);
+		if (command === 'log') return printLog(limit, out);
 		return await check(config, out);
 	} catch (error) {
 		if (error instanceof ConfigError || error instanceof BackupError) out.error(error.message);
@@ -122,6 +145,14 @@ async function signInLink(
 	const link = await createCommandLineSignInLink(
 		{ origin: config.origin, secret: config.authSecret, db: getConnection().db },
 		{ email, name: options.name, allowHomeCreation: options['can-create-home'] ?? false }
+	);
+
+	recordServerEvent(
+		{},
+		{
+			action: 'sign-in-link-printed',
+			detail: { email: link.email, created: link.created, canCreateHome: link.canCreateHome }
+		}
 	);
 
 	const account = link.created
@@ -249,6 +280,34 @@ async function check(config: Config, out: Output): Promise<number> {
 	if (report.ok) out.log(lines.join('\n'));
 	else out.error(lines.join('\n'));
 	return report.ok ? 0 : 1;
+}
+
+/** The server's log, one entry a line, the latest first (D58). */
+function printLog(limit: number, out: Output): number {
+	const events = listServerEvents(limit);
+	if (events.length === 0) {
+		out.log('Nothing has been recorded yet.');
+		return 0;
+	}
+	const lines = events.map((event) => {
+		const when = event.createdAt
+			.toISOString()
+			.replace('T', ' ')
+			.replace(/\.\d+Z$/, 'Z');
+		const from = [event.ipAddress, event.userAgent && describeUserAgent(event.userAgent)]
+			.filter(Boolean)
+			.join(', ');
+		return `${when}  ${describeServerEntry(event, event.userEmail)}${from ? ` (${from})` : ''}`;
+	});
+	if (events.length === limit) lines.push('', `The latest ${limit}; use --limit to see more.`);
+	out.log(lines.join('\n'));
+	return 0;
+}
+
+/** A number option's value, or `undefined` if it wasn't given; `0` if it isn't a whole number. */
+function wholeNumber(value: string | undefined): number | undefined {
+	if (value === undefined) return undefined;
+	return /^\d+$/.test(value) ? Number(value) : 0;
 }
 
 /** Each missing file's path, with the photo and plant it's for. */

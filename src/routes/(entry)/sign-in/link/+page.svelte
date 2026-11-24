@@ -24,6 +24,9 @@
 {:else}
 	<h1 class="text-2xl font-semibold tracking-tight">Sign in to Chloris</h1>
 	<p class="mt-2 text-muted-foreground">You opened a sign-in link. Continue to sign in here.</p>
+	{#if form?.tooMany}
+		<p role="alert" class="mt-4 text-sm text-destructive">{form.tooMany}</p>
+	{/if}
 	<form
 		method="POST"
 		use:enhance={() => {

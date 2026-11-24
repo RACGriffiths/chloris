@@ -27,6 +27,10 @@
 	<meta name="referrer" content="strict-origin" />
 </svelte:head>
 
+{#if form?.tooMany}
+	<p role="alert" class="mb-6 text-sm text-destructive">{form.tooMany}</p>
+{/if}
+
 {#if form?.joined}
 	<h1 class="text-2xl font-semibold tracking-tight">You've joined {form.joined.homeName}</h1>
 	<p class="mt-2 text-muted-foreground">

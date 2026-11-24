@@ -8,6 +8,7 @@ import {
 } from '#lib/server/data/homes.js';
 import { textField } from '#lib/server/forms.js';
 import { canCreateHome } from '#lib/server/permissions/index.js';
+import { audit } from '#lib/server/security/audit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -31,9 +32,9 @@ export const load: PageServerLoad = ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ locals, request }) => {
-		const user = requireHomeCreation(locals);
-		const form = await request.formData();
+	default: async (event) => {
+		const user = requireHomeCreation(event.locals);
+		const form = await event.request.formData();
 		const values = {
 			name: textField(form, 'name'),
 			timeZone: textField(form, 'timeZone')
@@ -46,7 +47,8 @@ export const actions = {
 			);
 			return fail(400, { ...values, errors });
 		}
-		createHome(user.id, parsed.data);
+		const home = createHome(user.id, parsed.data);
+		audit(event, home.id, user.id, { action: 'home-created', detail: { name: home.name } });
 		redirect(303, '/');
 	}
 } satisfies Actions;

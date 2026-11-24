@@ -3,6 +3,7 @@ import { listMemorial, listPlants } from '#lib/server/data/plants.js';
 import { deleteRoom, getRoom, roomInput, updateRoom } from '#lib/server/data/rooms.js';
 import { fieldErrors, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
+import { audit } from '#lib/server/security/audit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /** Changing a room, or deleting it once it's empty, even of plants in the Memorial (D30, D44). */
@@ -41,13 +42,19 @@ export const actions = {
 		redirect(303, '/rooms');
 	},
 
-	delete: ({ locals, params }) => {
-		const { home } = requireHome(locals, 'home:configure');
-		const result = deleteRoom(home.id, params.roomId);
-		if (!result.ok && result.reason === 'not-found') error(404, 'Not found');
+	delete: (event) => {
+		const { user, home } = requireHome(event.locals, 'home:configure');
+		const room = getRoom(home.id, event.params.roomId);
+		const result = deleteRoom(home.id, event.params.roomId);
+		if (!room || (!result.ok && result.reason === 'not-found')) error(404, 'Not found');
 		if (!result.ok) {
 			return fail(400, { deleteError: 'Move the plants in this room to another room first.' });
 		}
+		audit(event, home.id, user.id, {
+			action: 'room-deleted',
+			targetId: room.id,
+			detail: { name: room.name }
+		});
 		redirect(303, '/rooms');
 	}
 } satisfies Actions;

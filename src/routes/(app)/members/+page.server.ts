@@ -12,6 +12,7 @@ import {
 import { listMembers } from '#lib/server/data/memberships.js';
 import { textField } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
+import { audit } from '#lib/server/security/audit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -48,13 +49,18 @@ export const load: PageServerLoad = ({ locals }) => {
 
 export const actions = {
 	/** Makes an invite and returns its link. Only a hash is stored, so this is its only showing. */
-	create: async ({ locals, request }) => {
-		const { user, home } = managedHome(locals);
-		const role = textField(await request.formData(), 'role');
+	create: async (event) => {
+		const { user, home } = managedHome(event.locals);
+		const role = textField(await event.request.formData(), 'role');
 		const parsed = inviteInput.safeParse({ role });
 		if (!parsed.success) return fail(400, { error: 'Choose a role for the person you invite.' });
 
 		const { invite, token } = createInvite(home.id, user.id, parsed.data);
+		audit(event, home.id, user.id, {
+			action: 'invite-created',
+			targetId: invite.id,
+			detail: { role: invite.role }
+		});
 		return {
 			created: {
 				url: inviteUrl(getConfig().origin, token),
@@ -64,12 +70,18 @@ export const actions = {
 		};
 	},
 
-	cancel: async ({ locals, request }) => {
-		const { home } = managedHome(locals);
-		const id = textField(await request.formData(), 'id');
-		if (!cancelInvite(home.id, id)) {
+	cancel: async (event) => {
+		const { user, home } = managedHome(event.locals);
+		const id = textField(await event.request.formData(), 'id');
+		const pending = listPendingInvites(home.id).find((invite) => invite.id === id);
+		if (!pending || !cancelInvite(home.id, id)) {
 			return fail(400, { error: 'That invite has already been used or cancelled.' });
 		}
+		audit(event, home.id, user.id, {
+			action: 'invite-cancelled',
+			targetId: id,
+			detail: { role: pending.role }
+		});
 		return { cancelled: true };
 	}
 } satisfies Actions;

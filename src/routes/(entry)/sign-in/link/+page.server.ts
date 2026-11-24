@@ -4,6 +4,8 @@ import { authHeaders } from '#lib/server/auth/http.js';
 import { getAuth } from '#lib/server/auth/index.js';
 import { hasPasskey } from '#lib/server/data/users.js';
 import { textField } from '#lib/server/forms.js';
+import { signInFailed } from '#lib/server/security/audit.js';
+import { clientKey, limits, tooManySignIns } from '#lib/server/security/rate-limit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -21,6 +23,9 @@ export const load: PageServerLoad = ({ url, setHeaders }) => {
 export const actions = {
 	default: async (event) => {
 		const token = textField(await event.request.formData(), 'token');
+		const limited = limits.failedSignIn.check(clientKey(event));
+		if (!limited.ok) return fail(429, { tooMany: tooManySignIns(limited) });
+
 		let userId: string;
 		try {
 			const result = await getAuth().api.magicLinkVerify({
@@ -30,7 +35,10 @@ export const actions = {
 			userId = result.user.id;
 		} catch (error) {
 			// Unknown, used or expired: BetterAuth answers all three the same way.
-			if (isAPIError(error)) return fail(400, { invalid: true });
+			if (isAPIError(error)) {
+				signInFailed(event, 'link');
+				return fail(400, { invalid: true });
+			}
 			throw error;
 		}
 		// After a first sign-in, offer to add a passkey (spec: Login).

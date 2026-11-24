@@ -17,6 +17,14 @@ export function signInLink(email: string, env: Record<string, string> = serverEn
 	return url;
 }
 
+/** The server's own log (D58), as `node build/cli log` prints it, the latest `limit` entries. */
+export function serverLog(env: Record<string, string> = serverEnv, limit = 1000): string {
+	return execFileSync(process.execPath, ['build/cli', 'log', '--limit', String(limit)], {
+		env: { ...process.env, ...env },
+		encoding: 'utf8'
+	});
+}
+
 /**
  * A new address for each test, since the tests share one database. Random, because tests run in
  * several workers at once: a time and a counter can repeat in two of them, signing two tests in
@@ -63,7 +71,11 @@ export async function createHome(page: Page, name: string) {
 export async function newPhone(
 	browser: Browser,
 	testInfo: TestInfo,
-	options: { javaScriptEnabled?: boolean; baseURL?: string } = {}
+	options: {
+		javaScriptEnabled?: boolean;
+		baseURL?: string;
+		extraHTTPHeaders?: Record<string, string>;
+	} = {}
 ): Promise<Page> {
 	const context = await browser.newContext({ ...testInfo.project.use, ...options });
 	return context.newPage();

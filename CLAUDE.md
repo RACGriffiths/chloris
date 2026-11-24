@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), the daily email digest with its scheduler, and the backup command, integrity check and removal of deleted photos are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), the daily email digest with its scheduler, the backup command, integrity check and removal of deleted photos, and the security baseline (Content Security Policy, rate limits, audit log) are in.
 
 ## Read first
 
@@ -35,7 +35,7 @@ Folders marked *(v1)* don't exist yet.
 src/
   env.ts          declares the environment variables for $app/env/private
   hooks.server.ts start-up (config, database, migrations, auth, background jobs); per request:
-                  session, auth routes
+                  security headers, session, auth routes (passkeys only, within rate limits)
   cli.ts          entry point of the command-line tool, built to build/cli
   lib/server/
     config.ts     config validation (Zod), free of SvelteKit imports
@@ -46,8 +46,10 @@ src/
     auth/         BetterAuth setup, sign-in links, which auth endpoints the browser may reach
     permissions/  roles, can(), requirePermission()
     notify/       mailer, and the daily digest email (push in v2)
-    cli.ts        the command-line tool's commands: sign-in-link, backup, check
+    cli.ts        the command-line tool's commands: sign-in-link, backup, check, log
     backup/       the backup command and the integrity check (D52, D53)
+    security/     security headers (the CSP itself is in vite.config.ts), rate limits, and
+                  recording the audit log and the server's own log (D55 to D58)
     testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
     photos/       checking and resizing uploads with sharp, write-once storage, the missing-photo
                   placeholder (the data layer's photos.ts is what calls them)
@@ -55,12 +57,12 @@ src/
                   hourly job removing deleted photos after the grace period (D54)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
   lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts,
-  lib/notifications.ts
+  lib/notifications.ts, lib/audit.ts
                       shared by server and pages: room, plant and care choices (including what
                       happened to a plant in the Memorial), their names on screen, calendar
                       dates and times in the home's time zone, photo sizes and limits, reading
                       the date a photo was taken from its EXIF data, the digest's defaults and
-                      quiet hours
+                      quiet hours, the audit log's actions and how they read
   lib/photo-upload.ts resizing a photo in the browser before upload (load with await import())
   lib/photo-field.ts  for a form that sends a photo: swaps in the resized copy, loading
                       photo-upload.ts only once a photo is sent
@@ -73,7 +75,7 @@ src/
     (app)/        the signed-in app: the Today view (the home page), plants, each photo's page
                   (plants/[plantId]/photos/[photoId]), the Memorial (plants/memorial) and the form
                   that moves a plant there (plants/[plantId]/memorialise), rooms, members and
-                  invites, the account page and its Notifications page (account/notifications),
+                  invites, the audit log (members/audit), the account page and its Notifications page (account/notifications),
                   and photos/[photoId]/[size], which serves photo files
 tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts, and
                   mailbox.ts, a pretend mail server for the second test server, which has email on
@@ -140,6 +142,11 @@ Much SvelteKit material online describes version 2. In this project:
 - Rows created at the same `now` are ordered by their random ids, so a test that checks the order of a list needs them created at different times.
 - The end-to-end tests run two copies of the app: the usual one with email off, and one with email on (`emailOrigin` in `tests/server-env.ts`) whose mail `readMail()` reads back. In a test for the second, `test.use({ baseURL: emailOrigin })` doesn't reach a page from `newPhone()`: pass `baseURL` to it, and `emailServerEnv` to `newOwner()` and `signInLink()`.
 - A form field hidden with CSS is still sent with the form, so `required` on it stops the browser submitting while it's hidden. The Notifications page hides fields with `group-has-[...]:hidden` and leaves the checking to the server.
+- The Content Security Policy (`csp` in `vite.config.ts`, D55) lets no inline script run except SvelteKit's own: no `<script>` in `app.html` without `nonce="%sveltekit.nonce%"`, no `onclick="..."` attributes, no `eval`. Images, fonts, fetches and forms may only use the app's own origin, plus `data:` and `blob:` images; anything else has to be added there. `npm run dev` allows inline styles, so a style blocked only in production shows up in `tests/security.e2e.ts`, which fails on any violation the browser reports.
+- Rate limits (D56) are counted in memory, per visitor. The end-to-end test servers set `ADDRESS_HEADER`, so a request without `X-Forwarded-For` comes from one shared visitor: every test's failed sign-ins add up there, and over 20 in 15 minutes would lock out the rest of the run. A test that sets out to hit a limit gives its page an address of its own with `newPhone(browser, testInfo, { extraHTTPHeaders: { 'x-forwarded-for': ... } })`.
+- Record an audit entry (D57) in the form action, once the change has worked, with `audit(event, home.id, user.id, { action, targetId, detail })` from `#lib/server/security/audit.js`. Read what the details need, such as a room's name, before deleting it. Something done to an account rather than a home (a sign-in, a passkey) goes through `auditAccount()`, which puts it in the server's log with where it came from and in each of the person's homes without (D58). Sign-ins and new passkeys are recorded by BetterAuth's after-hook (`src/lib/server/auth/audit.ts`), which runs for `getAuth().api.*` calls as well as the browser's; `ctx.context.newSession` is set once one signed someone in. A sign-in that fails goes through `signInFailed()`, which counts it towards the limit and logs it.
+- Running the server and running a home are separate (D58): a home's roles never reach the server's log, and the server admin coming in version 2 gets no access inside homes. The server's log (`#lib/server/data/server-log.js`) is the one table besides the account tables with no `home_id`; only the command-line tool reads it.
+- Rows written in the same millisecond can't be told apart by time. Where their order matters, as in the audit log, order by `rowid` after the time: SQLite gives every row one, in the order rows were added.
 
 ## Commands
 
@@ -153,6 +160,7 @@ First time: `npm install`, `cp .env.example .env` and set `BETTER_AUTH_SECRET`, 
 | `npm run cli -- sign-in-link <email>` | Prints a one-time sign-in link, creating the account if needed (after `npm run build`) |
 | `npm run cli -- backup <folder>` | Backs up the database, then the photos, into a new folder in `<folder>`, which must exist; `--keep <n>` removes the oldest |
 | `npm run cli -- check` | Checks the database, and its photos against the photo folder; changes nothing |
+| `npm run cli -- log` | Prints the server's own log: sign-ins with where they came from, failed sign-ins, rate limits used up (D58) |
 | `npm run check` | Type-check with svelte-check |
 | `npm run lint` | Prettier check, then ESLint |
 | `npm run format` | Format everything with Prettier |

@@ -51,7 +51,7 @@ All configuration comes from environment variables. `ORIGIN`, `PORT`, `HOST`, `B
 | `DATA_DIR` | `./data` | Folder holding the SQLite database. |
 | `PHOTOS_DIR` | `$DATA_DIR/photos` | Folder holding photo files. Can be a mounted drive. When set, it must already exist: Chloris won't make it, in case the drive isn't mounted (D37). |
 | `BODY_SIZE_LIMIT` | adapter default `512kb` | Maximum request size. Must be raised for photo uploads, to at least `21M`: Chloris warns at start-up if it's lower. The Docker image sets `25M`. |
-| `ADDRESS_HEADER`, `XFF_DEPTH` | not set | Which header carries the visitor's IP behind a proxy, and how many trusted proxies are in front. Needed for rate limiting. Behind one Caddy: `X-Forwarded-For` and `1`. Check the values against the real proxy chain, because these headers can be spoofed. |
+| `ADDRESS_HEADER`, `XFF_DEPTH` | not set | Which header carries the visitor's IP behind a proxy, and how many trusted proxies are in front. Needed for rate limiting: without them every visitor seems to come from the proxy and shares one set of limits, and Chloris says so in its log when requests look proxied. Behind one Caddy: `X-Forwarded-For` and `1`. Check the values against the real proxy chain, because these headers can be spoofed. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | not set; port `587` | Outgoing email. Leave unset to switch email off. Needs at least the host and sender; the user and password go together. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | not set | Web push keys, generated once with a CLI command. Push is off without them; set all three or none. The subject is a `mailto:` or `https://` URL. |
 | `PHOTO_DELETE_GRACE_DAYS` | `30` | How long a deleted photo's files stay on disk. See [Photos and backups](#photos-and-backups). |
@@ -96,7 +96,8 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Push subscription | User | Endpoint, keys, device name | Removed when the push service reports it gone. |
 | Notification settings | User + home | Digest channel (email, push from version 2, or off), digest time, quiet hours | One set per home, removed with the membership. Without one, the defaults apply (D46, D47). |
 | Digest log | User + home | Date, channel, task count, sent at | One row per person, home and day, written before the digest is sent, so a restart never sends it twice. A day with nothing due has a row too (D48). |
-| Audit event | Home, user | Action, target, time | Logins, invites, role changes, exports, deletions. |
+| Audit event | Home, user | Action, target, details, IP address, user agent, time | Sign-ins, passkeys added and removed, the home created, invites made, cancelled and used, and rooms, schedules and photos deleted; role changes, removed members and exports as they arrive. The details keep what it was done to as it was then, such as a deleted room's name. A sign-in or passkey change is recorded in each home the person belongs to at the time, without its IP address and user agent. Never changed once written. The user becomes empty if their account is deleted (D57). |
+| Server event | User (optional) | Action, target, details, IP address, user agent, time | The server's own log, belonging to no home: sign-ins and passkey changes with where they came from, sign-ins that failed, rate limits used up, and sign-in links the command-line tool printed. Never changed once written. The user becomes empty if their account is deleted (D58). |
 
 ## Authentication and access control
 
@@ -124,12 +125,16 @@ Passkeys are the main way in, with one-time sign-in links (magic links) as the f
 | Add, edit, memorialise and restore plants | `plant:edit` | Yes | Yes | No | No |
 | Manage rooms, schedules and measurement types | `home:configure` | Yes | Yes | No | No |
 | Change the home's name, time zone and winter months | `home:update` | Yes | No | No | No |
-| Invite and remove members, change roles | `member:manage` | Yes | No | No | No |
+| Invite and remove members, change roles, see the audit log | `member:manage` | Yes | No | No | No |
 | Export or delete the home | `home:export`, `home:delete` | Yes | No | No | No |
 
 Changing a photo's caption or date, or deleting it, needs `photo:add`, and only the person who added it may, unless they also have `plant:edit` (D40).
 
 A sitter's access ends automatically on its expiry date: an expired membership grants nothing. A home can have more than one owner.
+
+### Running the server
+
+Running the server is separate from running a home (D58). For now it belongs to whoever hosts Chloris, through the command-line tool: creating accounts that may create a home, and reading the server's own log with `node build/cli log`. Version 2 adds a server admin role, given by the command-line tool, with a section of its own in the app: accounts, homes (names and member counts, not their plants or photos), the server's log, the server's health, and invites to create a home. Being an admin gives no access inside any home, and being allowed to create a home doesn't make anyone an admin.
 
 ### How it is enforced
 
@@ -236,10 +241,15 @@ The app should be safe to put on the internet from its first release. The two bi
 
 - **Isolation between homes.** All database access goes through one layer that scopes by home. Tests deliberately try to cross between homes.
 - **Private photos.** Photos are never served as public static files. Each is served through the app after a permission check.
-- **Transport and cookies.** HTTPS only, with HSTS. Cookies are secure, HTTP-only and SameSite=Lax. Forms check the request's origin.
-- **Abuse limits.** Rate limits on magic-link requests, sign-in attempts and uploads, keyed on the visitor's real IP (see `ADDRESS_HEADER`).
-- **Content Security Policy.** Scripts load only from the app itself.
-- **Audit log.** Logins, invites, role changes, exports and deletions are recorded.
+- **Transport and cookies.** HTTPS only, with HSTS when `ORIGIN` uses HTTPS. Cookies are secure, HTTP-only and SameSite=Lax. Forms check the request's origin. Every response also says `nosniff`, sends other sites no referrer, opens no window to other sites, and turns off location, microphone and payments (D55).
+- **Abuse limits.** Rate limits, counted in memory, keyed on the visitor's real IP (see `ADDRESS_HEADER`), with IPv6 counted by /64 (D56):
+  - asking for a sign-in link: 10 an hour from one visitor, and 3 every 15 minutes for one address from anywhere, counted whether or not it has an account;
+  - sign-ins that fail (a sign-in link or invite link that doesn't work, a passkey that isn't accepted): after 20 in 15 minutes, every sign-in from that visitor is refused until the 15 minutes are up;
+  - BetterAuth's passkey endpoints, each of which stores a challenge: 60 a minute;
+  - photo uploads: 60 in 10 minutes per person, since uploading needs an account and a household may share one IP.
+- **Content Security Policy.** Scripts load only from the app itself: SvelteKit gives each page a new nonce for the inline script and styles it writes, and nothing else inline runs. Images, fonts, fetches and forms stay on the app's own origin, and no other site may show it in a frame (D55).
+- **Audit log.** Sign-ins, passkeys added and removed, invites made, cancelled and used, the home created, and rooms, schedules and photos deleted are recorded, with the person and the time, and for changes made to the home the IP address and device. Role changes, removed members and exports join it as they arrive. Owners see the latest 100 entries from the Members page (D57).
+- **Server log.** What belongs to no one home: sign-ins and passkey changes with their IP address and device, sign-ins that failed, rate limits used up, and sign-in links the command-line tool printed. Whoever hosts Chloris reads it with `node build/cli log`; server admins will see it in the app in version 2 (D58).
 - **Secrets.** The auth secret, VAPID keys and SMTP credentials come from environment variables, never from the code or the repository.
 - **Upkeep.** Automated dependency updates through Dependabot, and CI that type-checks, lints and runs the tests on every change.
 - **Backups.** The built-in backup command, plus host-level snapshots. Restores get tested.

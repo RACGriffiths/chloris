@@ -152,3 +152,37 @@ describe('check', () => {
 		expect(await main(['check', '--keep', '1'], env, out)).toBe(2);
 	});
 });
+
+describe('log', () => {
+	it('prints the server log, the latest first, including the links printed here', async () => {
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		await main(['sign-in-link', 'guest@example.com'], env, out);
+		logged = [];
+
+		expect(await main(['log'], env, out)).toBe(0);
+
+		expect(logged.join('\n').split('\n')).toEqual([
+			expect.stringMatching(
+				/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ {2}The command-line tool printed a sign-in link for guest@example\.com \(a new account, which may create a home\)$/
+			) as unknown,
+			expect.stringContaining('for owner@example.com') as unknown
+		]);
+	});
+
+	it('prints as many as asked, and says there may be more', async () => {
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		logged = [];
+
+		expect(await main(['log', '--limit', '1'], env, out)).toBe(0);
+
+		expect(logged.join('\n')).toMatch(/^.*existing account.*\n\nThe latest 1; use --limit/);
+	});
+
+	it('explains how to use it when the arguments are wrong', async () => {
+		expect(await main(['log', 'now'], env, out)).toBe(2);
+		expect(await main(['log', '--limit', '0'], env, out)).toBe(2);
+		expect(await main(['log', '--keep', '3'], env, out)).toBe(2);
+		expect(errors).toHaveLength(3);
+	});
+});

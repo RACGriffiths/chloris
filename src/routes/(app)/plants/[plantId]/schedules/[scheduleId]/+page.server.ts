@@ -10,6 +10,7 @@ import {
 } from '#lib/server/data/schedules.js';
 import { fieldErrors, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
+import { audit } from '#lib/server/security/audit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /** Changing how often a plant's task comes round, or removing its schedule. */
@@ -44,9 +45,19 @@ export const actions = {
 		redirect(303, `/plants/${params.plantId}#care`);
 	},
 
-	delete: ({ locals, params }) => {
-		const { home } = requireHome(locals, 'home:configure');
-		if (!deleteSchedule(home.id, params.plantId, params.scheduleId)) error(404, 'Not found');
-		redirect(303, `/plants/${params.plantId}#care`);
+	delete: (event) => {
+		const { params } = event;
+		const { user, home } = requireHome(event.locals, 'home:configure');
+		const plant = getPlant(home.id, params.plantId);
+		const schedule = plant && getSchedule(home.id, plant.id, params.scheduleId);
+		if (!plant || !schedule || !deleteSchedule(home.id, plant.id, schedule.id)) {
+			error(404, 'Not found');
+		}
+		audit(event, home.id, user.id, {
+			action: 'schedule-deleted',
+			targetId: schedule.id,
+			detail: { plant: plant.nickname, task: schedule.task }
+		});
+		redirect(303, `/plants/${plant.id}#care`);
 	}
 } satisfies Actions;

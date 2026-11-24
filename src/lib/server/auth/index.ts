@@ -8,6 +8,7 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import type { Db } from '../db';
 import * as schema from '../db/schema';
 import { ac, roles } from '../permissions/roles';
+import { auditHook } from './audit';
 import { invites } from './invites';
 
 /**
@@ -69,6 +70,12 @@ export function createAuth({ origin, secret, db, sendSignInLink, getRequestEvent
 			}
 		},
 		session: { expiresIn: 30 * DAY, updateAge: DAY },
+		// Chloris limits sign-ins itself (`#lib/server/security/rate-limit`, D56), including the
+		// form actions that call BetterAuth on the server, where BetterAuth's own limits don't
+		// apply. Those would otherwise depend on NODE_ENV, so differ between installs.
+		rateLimit: { enabled: false },
+		// Records sign-ins and new passkeys in the audit log (D57).
+		hooks: { after: auditHook(CLIENT_ADDRESS_HEADER) },
 		advanced: {
 			cookiePrefix: 'chloris',
 			ipAddress: { ipAddressHeaders: [CLIENT_ADDRESS_HEADER] }

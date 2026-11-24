@@ -29,6 +29,7 @@ import {
 import { fieldErrors, textField, textFields } from '#lib/server/forms.js';
 import { requireHome, requirePermission } from '#lib/server/permissions/guard.js';
 import { can } from '#lib/server/permissions/index.js';
+import { limits, tryAgainIn } from '#lib/server/security/rate-limit.js';
 import type { Home } from '#lib/server/data/homes.js';
 import type { PhotoProblem } from '#lib/server/photos/process.js';
 import { MAX_PHOTO_BYTES } from '#lib/photos.js';
@@ -203,6 +204,10 @@ function timeline(photos: Photo[], chosenCoverId: string | null, zone: string, t
 	return months;
 }
 
+/** Refuses a photo over the upload limit (D56). */
+const tooManyPhotos = ({ retryAfterSeconds }: { retryAfterSeconds: number }) =>
+	`That's a lot of photos in a short time. ${tryAgainIn(retryAfterSeconds)}`;
+
 /** How care just logged or removed is described: "Watered, today at 09:14". */
 function describe(event: { type: string; checkedTask: string | null; doneAt: Date }, home: Home) {
 	return `${careEventName(event.type, event.checkedTask)}, ${formatMoment(event.doneAt, home.timeZone, new Date(), 'sentence')}`;
@@ -228,7 +233,13 @@ export const actions = {
 		}
 
 		const photo = await photoBytes(form);
-		if (photo) requirePermission(user, home.id, 'photo:add');
+		if (photo) {
+			requirePermission(user, home.id, 'photo:add');
+			const limited = limits.upload.consume(user.id);
+			if (!limited.ok) {
+				return fail(429, { log: { values, errors: { photo: tooManyPhotos(limited) } } });
+			}
+		}
 		const result = photo
 			? await logCareWithPhoto(
 					home.id,
@@ -312,6 +323,11 @@ export const actions = {
 		const bytes = await photoBytes(form);
 		if (!bytes) {
 			return fail(400, { photo: { values, errors: { photo: PHOTO_PROBLEMS.none } } });
+		}
+		// Counted before the photo is checked and resized, the costly part (D56).
+		const limited = limits.upload.consume(user.id);
+		if (!limited.ok) {
+			return fail(429, { photo: { values, errors: { photo: tooManyPhotos(limited) } } });
 		}
 
 		const result = await addPhoto(home.id, user.id, plant.id, values, bytes);

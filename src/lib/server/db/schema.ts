@@ -8,6 +8,7 @@ import {
 	uniqueIndex,
 	type AnySQLiteColumn
 } from 'drizzle-orm/sqlite-core';
+import { AUDIT_ACTIONS, SERVER_ACTIONS } from '../../audit';
 import { CARE_TYPES, TASKS } from '../../care';
 import { DIGEST_CHANNELS } from '../../notifications';
 import { PLANT_STATUSES } from '../../plants';
@@ -476,4 +477,55 @@ export const digestLog = sqliteTable(
 			foreignColumns: [membership.homeId, membership.userId]
 		}).onDelete('cascade')
 	]
+);
+
+/**
+ * The home's audit log: sign-ins, passkeys, invites and deletions (D57). Never changed once
+ * written. A sign-in or passkey change is account-wide, so it gets a row in each home the person
+ * belongs to at the time, without where it came from: that goes in the server's log (D58).
+ */
+export const auditEvent = sqliteTable(
+	'audit_event',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		/** Who did it; `null` once their account is deleted, so the home keeps its record. */
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		action: text('action', { enum: AUDIT_ACTIONS }).notNull(),
+		/** The id of what it was done to, if it has one: an invite, a room, a photo. */
+		targetId: text('target_id'),
+		/** What it was done to, as it was then: `AuditDetails` in `#lib/audit`, as JSON. */
+		detail: text('detail', { mode: 'json' }).notNull(),
+		/** The visitor's address and browser, when it came from a request. */
+		ipAddress: text('ip_address'),
+		userAgent: text('user_agent'),
+		createdAt: createdAt()
+	},
+	(table) => [index('audit_event_home_id_created_at_idx').on(table.homeId, table.createdAt)]
+);
+
+/**
+ * The server's own log (D58): sign-ins and passkey changes with where they came from, sign-ins
+ * that failed, rate limits used up, and sign-in links the command-line tool printed. Never
+ * changed once written. It belongs to no home, so it isn't a domain table: only the command-line
+ * tool reads it, for whoever hosts Chloris.
+ */
+export const serverEvent = sqliteTable(
+	'server_event',
+	{
+		id: text('id').primaryKey(),
+		action: text('action', { enum: SERVER_ACTIONS }).notNull(),
+		/** Who it was, if anyone; `null` once their account is deleted. */
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		/** The id of what it was done to, if it has one: a passkey. */
+		targetId: text('target_id'),
+		/** `ServerDetails` in `#lib/audit`, as JSON. */
+		detail: text('detail', { mode: 'json' }).notNull(),
+		ipAddress: text('ip_address'),
+		userAgent: text('user_agent'),
+		createdAt: createdAt()
+	},
+	(table) => [index('server_event_created_at_idx').on(table.createdAt)]
 );
