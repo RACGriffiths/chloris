@@ -39,7 +39,8 @@ src/
   lib/server/
     config.ts     config validation (Zod), free of SvelteKit imports
     db/           Drizzle schema, client, migrations (applied at start-up after a backup)
-    data/         home-scoped queries, the only place that touches domain tables
+    data/         home-scoped queries, the only place that touches domain tables (add to it with
+                  the data-access-function skill)
     auth/         BetterAuth setup, sign-in links, which auth endpoints the browser may reach
     permissions/  roles, can(), requirePermission()
     notify/       mailer (push in v2)
@@ -124,6 +125,10 @@ Docker: `docker build -t chloris .`, or copy `compose.example.yaml` to `compose.
 - **security-guidance** (Anthropic): warns about risky patterns as code is written, and has a model review each turn's diff and each commit. The reviews count towards your Claude usage.
 
 It also registers a hook, [.claude/hooks/protect-migrations.mjs](.claude/hooks/protect-migrations.mjs), that blocks edits to migrations already committed.
+
+The project's own skills are in `.claude/skills/`. Claude Code uses one when the work calls for it, or start it by name with a slash:
+
+- **data-access-function** ([SKILL.md](.claude/skills/data-access-function/SKILL.md)): adding or changing a function in the data-access layer, with home scoping, the `can()` check in each route that calls it, and the isolation test. Its examples are tested patterns, not a design for rooms and plants: the spec decides those.
 
 Also worth having, but installed per person rather than here, so they don't clash with copies enabled account-wide: a TypeScript language server plugin (`typescript-lsp@claude-plugins-official`, which needs `npm install -g typescript-language-server typescript`) and `frontend-design@claude-plugins-official`, which is the one to use when designing screens.
 
