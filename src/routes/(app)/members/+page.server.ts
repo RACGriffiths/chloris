@@ -1,8 +1,6 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { inviteUrl } from '#lib/server/auth/invites.js';
-import { requireUser } from '#lib/server/auth/require.js';
 import { getConfig } from '#lib/server/config.js';
-import { listHomesForUser } from '#lib/server/data/homes.js';
 import {
 	INVITE_DAYS,
 	INVITE_ROLES,
@@ -13,21 +11,14 @@ import {
 } from '#lib/server/data/invites.js';
 import { listMembers } from '#lib/server/data/memberships.js';
 import { textField } from '#lib/server/forms.js';
-import { requirePermission } from '#lib/server/permissions/guard.js';
+import { requireHome } from '#lib/server/permissions/guard.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
  * The people in a home, and invite links for adding more (D28). Only those who may manage
  * members see it: owners.
  */
-function managedHome(locals: App.Locals) {
-	const user = requireUser(locals);
-	// The UI shows one home for now (D14).
-	const [home] = listHomesForUser(user.id);
-	if (!home) redirect(303, '/');
-	requirePermission(user, home.id, 'member:manage');
-	return { user, home };
-}
+const managedHome = (locals: App.Locals) => requireHome(locals, 'member:manage');
 
 const dateFormat = (timeZone: string) =>
 	new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone });
