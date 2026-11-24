@@ -1,15 +1,21 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { isAPIError } from 'better-auth/api';
 import { describeUserAgent } from '#lib/devices.js';
+import { defaultNotificationSettings, digestSummary } from '#lib/notifications.js';
 import { authHeaders } from '#lib/server/auth/http.js';
 import { getAuth } from '#lib/server/auth/index.js';
 import { requireUser } from '#lib/server/auth/require.js';
+import { getConfig } from '#lib/server/config.js';
+import { listHomesForUser } from '#lib/server/data/homes.js';
+import { getNotificationSettings } from '#lib/server/data/notifications.js';
 import { textField } from '#lib/server/forms.js';
+import { can } from '#lib/server/permissions/index.js';
 import type { Actions, PageServerLoad, RequestEvent } from './$types';
 
 /**
  * The signed-in person's passkeys and sessions, any of which they can remove, and signing out.
- * BetterAuth only ever lists or removes the signed-in user's own.
+ * BetterAuth only ever lists or removes the signed-in user's own. For someone in a home, it also
+ * sums up their daily digest, which the Notifications page changes.
  */
 
 const formatDate = (date: Date) =>
@@ -26,6 +32,7 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		name: user.name,
 		email: user.email,
+		digest: digestFor(user),
 		passkeys: passkeys
 			.sort((a, b) => Number(a.createdAt ?? 0) - Number(b.createdAt ?? 0))
 			.map((passkey) => ({
@@ -44,6 +51,20 @@ export const load: PageServerLoad = async (event) => {
 			}))
 	};
 };
+
+/** The daily digest in a few words, for someone in a home; `null` for someone without one. */
+function digestFor(user: { id: string; emailVerified: boolean }): string | null {
+	const [home] = listHomesForUser(user.id);
+	if (!home || !can(user, home.id, 'home:view')) return null;
+	if (getConfig().smtp === null) return 'Off: email is switched off on this server';
+	const settings =
+		getNotificationSettings(home.id, user.id) ??
+		defaultNotificationSettings(can(user, home.id, 'care:log'));
+	const summary = digestSummary(settings);
+	return settings.channel && !user.emailVerified
+		? `${summary}, once you confirm your address`
+		: summary;
+}
 
 async function signOut(event: RequestEvent): Promise<never> {
 	await getAuth().api.signOut({ headers: authHeaders(event) });

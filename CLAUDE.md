@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, and the Memorial (lifecycle statuses) are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), and the daily email digest with its scheduler are in.
 
 ## Read first
 
@@ -34,7 +34,8 @@ Folders marked *(v1)* don't exist yet.
 ```
 src/
   env.ts          declares the environment variables for $app/env/private
-  hooks.server.ts start-up (config, database, migrations, auth); per request: session, auth routes
+  hooks.server.ts start-up (config, database, migrations, auth, background jobs); per request:
+                  session, auth routes
   cli.ts          entry point of the command-line tool, built to build/cli
   lib/server/
     config.ts     config validation (Zod), free of SvelteKit imports
@@ -43,18 +44,21 @@ src/
                   the data-access-function skill)
     auth/         BetterAuth setup, sign-in links, which auth endpoints the browser may reach
     permissions/  roles, can(), requirePermission()
-    notify/       mailer (push in v2)
+    notify/       mailer, and the daily digest email (push in v2)
     cli.ts        the command-line tool's commands
     testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
     photos/       checking and resizing uploads with sharp, write-once storage, the missing-photo
                   placeholder (the data layer's photos.ts is what calls them)
-    jobs/         scheduler, digests, photo clean-up (v1)
+    jobs/         croner scheduler and the daily digest job, run only when email is on (photo
+                  clean-up comes with the backup command, D51)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
-  lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts
+  lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts,
+  lib/notifications.ts
                       shared by server and pages: room, plant and care choices (including what
                       happened to a plant in the Memorial), their names on screen, calendar
                       dates and times in the home's time zone, photo sizes and limits, reading
-                      the date a photo was taken from its EXIF data
+                      the date a photo was taken from its EXIF data, the digest's defaults and
+                      quiet hours
   lib/photo-upload.ts resizing a photo in the browser before upload (load with await import())
   lib/photo-field.ts  for a form that sends a photo: swaps in the resized copy, loading
                       photo-upload.ts only once a photo is sent
@@ -67,8 +71,10 @@ src/
     (app)/        the signed-in app: the Today view (the home page), plants, each photo's page
                   (plants/[plantId]/photos/[photoId]), the Memorial (plants/memorial) and the form
                   that moves a plant there (plants/[plantId]/memorialise), rooms, members and
-                  invites, the account page, and photos/[photoId]/[size], which serves photo files
-tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
+                  invites, the account page and its Notifications page (account/notifications),
+                  and photos/[photoId]/[size], which serves photo files
+tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts, and
+                  mailbox.ts, a pretend mail server for the second test server, which has email on
 ```
 
 Folders in brackets are SvelteKit route groups: they share a layout but don't appear in URLs.
@@ -124,6 +130,12 @@ Much SvelteKit material online describes version 2. In this project:
 - Tailwind's `line-clamp-*` works by setting `display: -webkit-box`, so `block` on the same element undoes it and nothing is cut off. Leave `block` out; the clamp makes the element a block already.
 - A result type whose failure has a union of reasons (`reason: 'not-found' | 'in-the-future'`) can't be narrowed one reason at a time, so a field on another failure (`acquiredOn`) can't be read after `error(404)` on `not-found`. Give each reason its own variant, as `MemorialiseResult` does.
 - In Playwright, `getByLabel` and `getByRole({ name })` match substrings: "Kitchen" also finds "Edit Kitchen", and "Name" finds "Room name". Use `exact: true`. After a click that navigates, wait for something on the next page before filling a field or reading the URL, or the step acts on the old page.
+- SvelteKit types a page's `form` as every action's result merged, each key optional, so `'values' in form` doesn't narrow it. Read `form?.values ?? data.values`, as the other pages do.
+- Zod's `.superRefine()` keeps an object schema an object, so `.keyof()` still lists its fields for `textFields()`. `.transform()` on the whole object doesn't: check fields across each other with `superRefine` and turn the values into what's stored in the data function.
+- When an unconfirmed account uses a sign-in link, BetterAuth confirms the address and ends all its other sessions (`revokeUnprovenAccountAccess`). The Notifications page warns of this before sending one (D50).
+- The digest job and other background work act for no one signed in, so they can't use `requireHome()`. They call `can({ id: userId }, homeId, permission, now)` for each person they act for, and only `listHomeIds()` in `homes.ts` reads across homes.
+- The end-to-end tests run two copies of the app: the usual one with email off, and one with email on (`emailOrigin` in `tests/server-env.ts`) whose mail `readMail()` reads back. In a test for the second, `test.use({ baseURL: emailOrigin })` doesn't reach a page from `newPhone()`: pass `baseURL` to it, and `emailServerEnv` to `newOwner()` and `signInLink()`.
+- A form field hidden with CSS is still sent with the form, so `required` on it stops the browser submitting while it's hidden. The Notifications page hides fields with `group-has-[...]:hidden` and leaves the checking to the server.
 
 ## Commands
 
