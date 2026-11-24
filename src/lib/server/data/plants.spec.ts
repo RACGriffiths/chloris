@@ -1,19 +1,22 @@
-import { eq } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getConnection } from '../db';
-import { plant } from '../db/schema';
 import { insertUser, markPhotoDeleted, testJpeg, useTestDatabase } from '../testing';
 import { createHome } from './homes';
 import { addPhoto, deletePhoto, type Photo } from './photos';
 import {
+	MAX_STATUS_NOTE_LENGTH,
 	MAX_TAGS,
+	countMemorial,
 	createPlant,
 	getPlant,
+	listMemorial,
 	listPlants,
+	memorialisePlant,
 	parseTags,
+	restorePlant,
 	setCoverPhoto,
 	updatePlant,
+	type MemorialInput,
 	type Plant,
 	type PlantInput
 } from './plants';
@@ -58,6 +61,30 @@ const summary = ({ id, nickname, species, roomId, tags, coverPhotoId }: Plant) =
 	roomId,
 	tags,
 	coverPhotoId
+});
+
+/** A time on 15 June 2026, which is `today` in London and in Paris. */
+const now = new Date('2026-06-15T09:00:00Z');
+const today = '2026-06-15';
+
+/** Moves a plant to the Memorial, which must be accepted. */
+function memorialise(homeId: string, plantId: string, input: MemorialInput): Plant {
+	const result = memorialisePlant(homeId, plantId, input, now);
+	if (!result.ok) throw new Error(`Memorial refused: ${result.reason}`);
+	return result.plant;
+}
+
+/** How the Memorial view lists a plant. */
+const memorialEntry = (plant: Plant) => ({
+	id: plant.id,
+	nickname: plant.nickname,
+	species: plant.species,
+	roomId: plant.roomId,
+	acquiredOn: plant.acquiredOn,
+	status: plant.status,
+	statusOn: plant.statusOn,
+	statusNote: plant.statusNote,
+	coverPhotoId: plant.coverPhotoId
 });
 
 /** The form messages a ZodError carries, or `[]` if `run` doesn't throw one. */
@@ -123,7 +150,10 @@ describe('createPlant', () => {
 			pot: null,
 			soil: null,
 			tags: [],
-			notes: null
+			notes: null,
+			status: 'active',
+			statusOn: null,
+			statusNote: null
 		});
 	});
 
@@ -176,9 +206,14 @@ describe('getPlant', () => {
 
 	it('still finds a plant that is no longer active', () => {
 		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
-		getConnection().db.update(plant).set({ status: 'sold' }).where(eq(plant.id, fern.id)).run();
+		memorialise(aliceHome, fern.id, { status: 'sold', statusOn: today });
 
-		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+		expect(getPlant(aliceHome, fern.id)).toEqual({
+			...fern,
+			status: 'sold',
+			statusOn: today,
+			statusNote: null
+		});
 	});
 });
 
@@ -195,7 +230,7 @@ describe('listPlants', () => {
 		const monstera = addPlant(aliceHome, { nickname: 'monstera', roomId: kitchen.id });
 		const basil = addPlant(aliceHome, { nickname: 'Basil', roomId: kitchen.id });
 		const ivy = addPlant(aliceHome, { nickname: 'Ivy', roomId: kitchen.id });
-		getConnection().db.update(plant).set({ status: 'died' }).where(eq(plant.id, ivy.id)).run();
+		memorialise(aliceHome, ivy.id, { status: 'died', statusOn: today });
 
 		expect(listPlants(aliceHome)).toEqual([summary(basil), summary(monstera)]);
 	});
@@ -366,5 +401,197 @@ describe('cover photos', () => {
 
 		expect(cover(fern.id)).toEqual({ id: ferns.id, chosen: false });
 		expect(getPlant(bobHome, cactus.id)).toMatchObject({ coverPhotoId: null, coverChosen: false });
+	});
+});
+
+describe('memorialisePlant', () => {
+	let fern: Plant;
+
+	beforeEach(() => {
+		fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id, acquiredOn: '2025-03-14' });
+	});
+
+	it('records what happened, when and a tidied note, taking it off the list', () => {
+		const result = memorialisePlant(
+			aliceHome,
+			fern.id,
+			{ status: 'died', statusOn: '2026-06-01', statusNote: '  Too much water.  ' },
+			now
+		);
+
+		const memorialised = {
+			...fern,
+			status: 'died',
+			statusOn: '2026-06-01',
+			statusNote: 'Too much water.'
+		};
+		expect(result).toEqual({ ok: true, plant: memorialised });
+		expect(getPlant(aliceHome, fern.id)).toEqual(memorialised);
+		expect(listPlants(aliceHome)).toEqual([]);
+	});
+
+	it('corrects the entry of a plant already in the Memorial, and a blank note means none', () => {
+		memorialise(aliceHome, fern.id, { status: 'died', statusOn: '2026-06-01', statusNote: 'Rot' });
+
+		const corrected = memorialise(aliceHome, fern.id, {
+			status: 'given-away',
+			statusOn: '2026-06-02',
+			statusNote: ' '
+		});
+
+		expect(corrected).toMatchObject({
+			status: 'given-away',
+			statusOn: '2026-06-02',
+			statusNote: null
+		});
+	});
+
+	it('takes today in the home’s time zone, but no day after it', () => {
+		// 22:30 UTC on the 15th is already the 16th in Paris, but not yet in London.
+		const lateEvening = new Date('2026-06-15T22:30:00Z');
+		const cactus = addPlant(bobHome, { nickname: 'Cactus', roomId: study.id });
+		const tomorrow = { status: 'sold', statusOn: '2026-06-16' };
+
+		expect(memorialisePlant(aliceHome, fern.id, tomorrow, lateEvening)).toEqual({
+			ok: false,
+			reason: 'in-the-future'
+		});
+		expect(memorialisePlant(bobHome, cactus.id, tomorrow, lateEvening)).toMatchObject({
+			ok: true
+		});
+
+		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+	});
+
+	it('refuses a day before the plant was got, saying when that was', () => {
+		expect(
+			memorialisePlant(aliceHome, fern.id, { status: 'died', statusOn: '2025-03-13' }, now)
+		).toEqual({ ok: false, reason: 'before-acquired', acquiredOn: '2025-03-14' });
+		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+
+		expect(
+			memorialisePlant(aliceHome, fern.id, { status: 'died', statusOn: '2025-03-14' }, now)
+		).toMatchObject({ ok: true });
+	});
+
+	it('explains what is wrong with the form', () => {
+		const tooLong = 'x'.repeat(MAX_STATUS_NOTE_LENGTH + 1);
+		const memorial = (input: MemorialInput) => () =>
+			memorialisePlant(aliceHome, fern.id, input, now);
+
+		expect(messages(memorial({ status: 'active', statusOn: today }))).toEqual([
+			'Choose what happened.'
+		]);
+		expect(messages(memorial({ status: 'died', statusOn: '' }))).toEqual([
+			'Enter a date, like 2025-03-14.'
+		]);
+		expect(messages(memorial({ status: 'died', statusOn: today, statusNote: tooLong }))).toEqual([
+			'Keep the note to 500 characters or fewer.'
+		]);
+		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+	});
+
+	it("can't memorialise another home's plant", () => {
+		expect(memorialisePlant(bobHome, fern.id, { status: 'died', statusOn: today }, now)).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+
+		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+		expect(listMemorial(bobHome)).toEqual([]);
+	});
+});
+
+describe('restorePlant', () => {
+	it('brings a plant back to the list, clearing the day and the note', () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+		memorialise(aliceHome, fern.id, { status: 'died', statusOn: today, statusNote: 'Rot' });
+
+		expect(restorePlant(aliceHome, fern.id)).toBe(true);
+
+		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+		expect(listPlants(aliceHome)).toEqual([summary(fern)]);
+		expect(listMemorial(aliceHome)).toEqual([]);
+	});
+
+	it('changes nothing for an active plant', () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+
+		expect(restorePlant(aliceHome, fern.id)).toBe(true);
+		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+	});
+
+	it("can't restore another home's plant", () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+		const sold = memorialise(aliceHome, fern.id, { status: 'sold', statusOn: today });
+
+		expect(restorePlant(bobHome, fern.id)).toBe(false);
+		expect(restorePlant(aliceHome, 'no-such-plant')).toBe(false);
+
+		expect(getPlant(aliceHome, fern.id)).toEqual(sold);
+	});
+});
+
+describe('listMemorial', () => {
+	it('lists the most recent first, then by name, leaving out active plants', () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+		const basil = addPlant(aliceHome, { nickname: 'basil', roomId: kitchen.id });
+		const ivy = addPlant(aliceHome, { nickname: 'Ivy', roomId: kitchen.id });
+		addPlant(aliceHome, { nickname: 'Monstera', roomId: kitchen.id });
+
+		const gone = [
+			memorialise(aliceHome, fern.id, { status: 'given-away', statusOn: '2026-05-01' }),
+			memorialise(aliceHome, ivy.id, { status: 'died', statusOn: '2026-06-10', statusNote: 'Dry' }),
+			memorialise(aliceHome, basil.id, { status: 'sold', statusOn: '2026-06-10' })
+		];
+
+		expect(listMemorial(aliceHome)).toEqual(
+			[gone[2], gone[1], gone[0]].map((plant) => memorialEntry(plant))
+		);
+	});
+
+	it('shows each plant by its cover photo', async () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+		const jpeg = await testJpeg();
+		const added = await addPhoto(
+			aliceHome,
+			alice,
+			fern.id,
+			{ takenAt: '2026-01-01T12:00:00' },
+			jpeg
+		);
+		if (!added.ok) throw new Error('Photo refused');
+		await addPhoto(aliceHome, alice, fern.id, { takenAt: '2026-05-01T12:00:00' }, jpeg);
+		setCoverPhoto(aliceHome, fern.id, added.photo.id);
+		memorialise(aliceHome, fern.id, { status: 'died', statusOn: today });
+
+		expect(listMemorial(aliceHome)).toMatchObject([{ id: fern.id, coverPhotoId: added.photo.id }]);
+	});
+
+	it("lists only the home's own plants, never another's", () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+		const cactus = addPlant(bobHome, { nickname: 'Cactus', roomId: study.id });
+		const died = memorialise(aliceHome, fern.id, { status: 'died', statusOn: today });
+		const sold = memorialise(bobHome, cactus.id, { status: 'sold', statusOn: today });
+
+		expect(listMemorial(aliceHome)).toEqual([memorialEntry(died)]);
+		expect(listMemorial(bobHome)).toEqual([memorialEntry(sold)]);
+	});
+});
+
+describe('countMemorial', () => {
+	it("counts only the home's own plants in the Memorial", () => {
+		const fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+		const ivy = addPlant(aliceHome, { nickname: 'Ivy', roomId: kitchen.id });
+		addPlant(aliceHome, { nickname: 'Basil', roomId: kitchen.id });
+		const cactus = addPlant(bobHome, { nickname: 'Cactus', roomId: study.id });
+		expect(countMemorial(aliceHome)).toBe(0);
+
+		memorialise(aliceHome, fern.id, { status: 'died', statusOn: today });
+		memorialise(aliceHome, ivy.id, { status: 'sold', statusOn: today });
+		memorialise(bobHome, cactus.id, { status: 'given-away', statusOn: today });
+
+		expect(countMemorial(aliceHome)).toBe(2);
+		expect(countMemorial(bobHome)).toBe(1);
 	});
 });

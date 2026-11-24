@@ -1,9 +1,9 @@
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { insertUser, setPlantStatus, useTestDatabase } from '../testing';
+import { insertUser, useTestDatabase } from '../testing';
 import { logCare, type CareInput } from './care-events';
 import { createHome } from './homes';
-import { createPlant } from './plants';
+import { createPlant, memorialisePlant } from './plants';
 import { createRoom } from './rooms';
 import {
 	cancelSnooze,
@@ -281,7 +281,7 @@ describe('listTasks', () => {
 
 	it('leaves out plants that are no longer active', () => {
 		schedule(aliceHome, fern, watering);
-		setPlantStatus(fern, 'died');
+		memorialisePlant(aliceHome, fern, { status: 'died', statusOn: today }, now);
 
 		expect(listTasks(aliceHome, now)).toEqual([]);
 		// The plant's own page still shows its schedules.
@@ -388,6 +388,16 @@ describe('snoozeTask', () => {
 			reason: 'too-far'
 		});
 		expect(fernWatering().snoozedUntil).toBe('2026-07-01');
+	});
+
+	it('refuses a plant in the Memorial, changing nothing', () => {
+		memorialisePlant(aliceHome, fern, { status: 'given-away', statusOn: today }, now);
+
+		expect(snoozeTask(aliceHome, fern, 'water', { days: '1' }, now)).toEqual({
+			ok: false,
+			reason: 'in-the-memorial'
+		});
+		expect(fernWatering().snoozedUntil).toBeNull();
 	});
 
 	it('counts today in the home’s time zone', () => {

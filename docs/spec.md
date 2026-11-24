@@ -86,7 +86,7 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Membership | User + home | Role, expires at | Expiry is used for sitters. |
 | Invite | Home | Role, token hash, created by, expires at, used at, used by | A link that works once, for 7 days. Only a hash of its token is stored. |
 | Room | Home | Name (unique in the home, ignoring case), indoor or outdoor, light level | Light: low, medium, bright, direct sun, or not given. Only an empty room can be deleted (D30). |
-| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status and parent plant are stored from version 1, before their screens (D29). The cover photo is one of the plant's own photos; without one, its latest photo is shown (D42). Plants aren't deleted (D30). |
+| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note, both cleared when it's restored (D43). Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status and parent plant are stored from version 1, before their screens (D29). The cover photo is one of the plant's own photos; without one, its latest photo is shown (D42). Plants aren't deleted (D30). |
 | Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, mist, prune, repot, pest treatment, move, checked. A check records which task it was for. Done at can be earlier than when it was logged. Undoing deletes the event (D32). The user becomes empty if their account is deleted, so the home keeps its history. A photo logged with it joins the plant's timeline, and stays there if the care is undone (D41). |
 | Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | One per task on a plant; moves and checks aren't scheduled. Next due is a calendar date in the home's time zone, the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task since then + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. Doing or checking the task ends its snooze (D31). The winter interval is stored from version 1 and used from version 2 (D33). |
 | Measurement type | Home | Name, unit | E.g. height in cm, leaf count. |
@@ -120,7 +120,7 @@ Passkeys are the main way in, with one-time sign-in links (magic links) as the f
 | See plants, photos and history | `home:view` | Yes | Yes | Yes | Yes |
 | Log care and snooze tasks | `care:log` | Yes | Yes | No | Yes |
 | Add photos and measurements | `photo:add`, `measurement:add` | Yes | Yes | No | Yes |
-| Add, edit and memorialise plants | `plant:edit` | Yes | Yes | No | No |
+| Add, edit, memorialise and restore plants | `plant:edit` | Yes | Yes | No | No |
 | Manage rooms, schedules and measurement types | `home:configure` | Yes | Yes | No | No |
 | Change the home's name, time zone and winter months | `home:update` | Yes | No | No | No |
 | Invite and remove members, change roles | `member:manage` | Yes | No | No | No |
@@ -154,7 +154,7 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 - A list or grid of cover photos, filtered by room, tag or what is due. Plants are listed under their rooms. Each plant's tile shows its cover photo, or its initial while it has no photos (D42). The room and tag filters are links, so they work before JavaScript loads.
 - Each plant's page holds its schedule, care history, photo timeline, measurements and notes. Until measurements arrive, it has a section saying what they will add.
-- A Rooms page lists the home's rooms and how many plants each holds. Those who may configure the home add, change and delete rooms there. A room can be deleted only once it's empty; its plants are moved first (D30). Adding a plant to a home with no rooms asks for the first room.
+- A Rooms page lists the home's rooms and how many plants each holds. Those who may configure the home add, change and delete rooms there. A room can be deleted only once it's empty; its plants, including any in the Memorial, are moved first (D30, D44). Adding a plant to a home with no rooms asks for the first room.
 - Plants aren't deleted: one that died, was given away or was sold goes to the Memorial view.
 
 ### Care log and schedules
@@ -182,8 +182,10 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 ### Memorial and lifecycle
 
-- A plant that died, was given away or was sold leaves the Today view and the main list.
-- A Memorial view shows each one with its dates, last photo and a note. Plants can be restored.
+- A plant that died, was given away or was sold leaves the Today view and the main list. It goes to the Memorial from the foot of its Edit page, saying what happened, on what day (today unless changed) and, optionally, a note. The entry can be corrected later (D43).
+- A Memorial view, linked from the foot of the Plants page, shows each one, the most recent first, with its dates, its cover photo and its note. The cover is the photo chosen for it, or else its latest (D42, D45).
+- A plant's page in the Memorial says what happened. Its details, care history and photos stay, and photos can still be added and its cover chosen. Care can't be logged on it; its schedules are kept but hidden (D44).
+- A plant is restored from its own page in two taps, and comes back to Today and Plants with its schedules (D43).
 - Later: a cutting records its parent, and the plant's page shows its family tree.
 
 ### Around the edges

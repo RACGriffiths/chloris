@@ -63,6 +63,10 @@ const PHOTO_PROBLEMS: Record<PhotoProblem | 'too-big-for-server' | 'none', strin
 	unreadable: "That photo couldn't be read. It may be damaged; try another."
 };
 
+/** Why care wasn't logged or snoozed on a plant in the Memorial (D44). */
+const inTheMemorial = (nickname: string) =>
+	`${nickname} is in the Memorial, so it needs no care. Restore it to look after it again.`;
+
 /** The plant in the URL, if it's in the user's home; otherwise the request ends with a 404. */
 function plantIn(home: Home, plantId: string) {
 	const plant = getPlant(home.id, plantId);
@@ -223,6 +227,9 @@ export const actions = {
 			: logCare(home.id, user.id, plant.id, values);
 		if (!result.ok) {
 			if (result.reason === 'not-found') error(404, 'Not found');
+			if (result.reason === 'in-the-memorial') {
+				return fail(400, { error: inTheMemorial(plant.nickname) });
+			}
 			const errors =
 				result.reason === 'in-the-future'
 					? { doneAt: 'That time is still to come. Choose one that has passed.' }
@@ -262,6 +269,9 @@ export const actions = {
 
 		const result = snoozeTask(home.id, plant.id, task, values);
 		if (!result.ok && result.reason === 'not-found') error(404, 'Not found');
+		if (!result.ok && result.reason === 'in-the-memorial') {
+			return fail(400, { error: inTheMemorial(plant.nickname) });
+		}
 		if (!result.ok) {
 			const message =
 				result.reason === 'too-far' ? 'Choose a date within a year.' : 'Choose a date after today.';

@@ -3,7 +3,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { insertUser, setPlantStatus, testJpeg, useTestDatabase } from '../testing';
+import { insertUser, testJpeg, useTestDatabase } from '../testing';
 import {
 	listCareEvents,
 	listCareToday,
@@ -18,7 +18,7 @@ import {
 } from './care-events';
 import { createHome } from './homes';
 import { deletePhoto, getPhoto, listPhotos } from './photos';
-import { createPlant } from './plants';
+import { createPlant, memorialisePlant } from './plants';
 import { createRoom } from './rooms';
 import { createSchedule, listSchedules, snoozeTask } from './schedules';
 
@@ -130,6 +130,20 @@ describe('logCare', () => {
 		expect(
 			logCare(aliceHome, alice, fern, { type: 'water', doneAt: '2026-06-15T10:04' }, now)
 		).toMatchObject({ ok: true });
+	});
+
+	it('refuses a plant in the Memorial, but still undoes care logged before', () => {
+		const event = log(aliceHome, alice, fern, { type: 'water' });
+		memorialisePlant(aliceHome, fern, { status: 'died', statusOn: '2026-06-15' }, now);
+
+		expect(logCare(aliceHome, alice, fern, { type: 'water' }, now)).toEqual({
+			ok: false,
+			reason: 'in-the-memorial'
+		});
+		expect(history(aliceHome, fern)).toEqual([event]);
+
+		expect(undoCare(aliceHome, alice, fern, event.id)).toMatchObject({ ok: true });
+		expect(history(aliceHome, fern)).toEqual([]);
 	});
 
 	it('records which task a check was for, and only for a check', () => {
@@ -328,7 +342,7 @@ describe('logDueTasks', () => {
 
 	it('ignores plants without that task or no longer active, and repeated plants', () => {
 		const basil = addPlant(aliceHome, 'Basil');
-		setPlantStatus(ivy, 'given-away');
+		memorialisePlant(aliceHome, ivy, { status: 'given-away', statusOn: '2026-06-15' }, now);
 
 		const result = logDue(aliceHome, alice, {
 			task: 'water',
@@ -403,7 +417,7 @@ describe('listCareToday', () => {
 
 	it('leaves out plants that are no longer active', () => {
 		log(aliceHome, alice, fern, { type: 'water' });
-		setPlantStatus(fern, 'died');
+		memorialisePlant(aliceHome, fern, { status: 'died', statusOn: '2026-06-15' }, now);
 
 		expect(listCareToday(aliceHome, now)).toEqual([]);
 	});
@@ -518,6 +532,18 @@ describe('logCareWithPhoto', () => {
 			checkedTask: null,
 			doneAt: now
 		});
+	});
+
+	it('refuses a plant in the Memorial, keeping neither the care nor the photo', async () => {
+		memorialisePlant(aliceHome, fern, { status: 'sold', statusOn: '2026-06-15' }, now);
+
+		expect(await logCareWithPhoto(aliceHome, alice, fern, { type: 'repot' }, jpeg, now)).toEqual({
+			ok: false,
+			reason: 'in-the-memorial'
+		});
+		expect(listCareEvents(aliceHome, fern).events).toEqual([]);
+		expect(listPhotos(aliceHome, fern)).toEqual([]);
+		expect(filesOnDisk()).toEqual([]);
 	});
 
 	it('dates a photo with no date of its own when the care was done, and others by theirs', async () => {
