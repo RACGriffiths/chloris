@@ -9,10 +9,10 @@ argument-hint: '[what the function should do]'
 Chloris keeps each household's data away from every other household on the same server. Three rules in CLAUDE.md make that hold, and every data-access function must satisfy all three:
 
 1. **Home scoping.** The function lives in `src/lib/server/data/`, takes a `homeId`, and every statement it runs is limited to that home.
-2. **Authorisation on the server.** Every load function, form action and API route that calls it checks the permission for that home first, with `requirePermission()` (which uses `can()`).
+2. **Authorisation on the server.** Every load function, form action and API route that calls it checks the permission for that home first, with `requireHome()` or `requirePermission()` (both use `can()`).
 3. **Isolation test.** A test proves that, given another home's id, the function reads nothing and changes nothing.
 
-Work through the steps in order. The real code to copy from is `src/lib/server/data/invites.ts` (`createInvite`, `listPendingInvites`, `cancelInvite`), its tests in `invites.spec.ts`, and `src/routes/(app)/members/+page.server.ts`.
+Work through the steps in order. The real code to copy from is `src/lib/server/data/rooms.ts` and `plants.ts` (creating, listing, getting and changing rows, and checking a plant's room is in the same home), their tests in `rooms.spec.ts` and `plants.spec.ts`, and the routes under `src/routes/(app)/plants/` and `src/routes/(app)/rooms/`. `invites.ts` and the members page show a link that works once.
 
 Before starting, read the table's row in docs/spec.md (Data model) and the feature's section, so the fields and behaviour match the spec.
 
@@ -47,7 +47,7 @@ BetterAuth's tables (user, session, account, verification, passkey, home, member
 
 ## 3. Write the function
 
-In `src/lib/server/data/<resource>.ts`. The `room` table and its fields here are illustrative: the spec decides the real ones.
+In `src/lib/server/data/<resource>.ts`. The examples here are a simplified `rooms.ts`; the real one also refuses a name the home already has.
 
 ```ts
 import { randomUUID } from 'node:crypto';
@@ -167,51 +167,39 @@ Every load function and every form action that calls the function checks the per
 
 ```ts
 import { error, fail, redirect } from '@sveltejs/kit';
-import { requireUser } from '#lib/server/auth/require.js';
-import { listHomesForUser } from '#lib/server/data/homes.js';
-import { getRoom, renameRoom, roomInput } from '#lib/server/data/rooms.js';
-import { textField } from '#lib/server/forms.js';
-import { requirePermission } from '#lib/server/permissions/guard.js';
-import { can, type Permission } from '#lib/server/permissions/index.js';
+import { getRoom, roomInput, updateRoom } from '#lib/server/data/rooms.js';
+import { fieldErrors, textFields } from '#lib/server/forms.js';
+import { requireHome } from '#lib/server/permissions/guard.js';
+import { can } from '#lib/server/permissions/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
-/** The signed-in user and their home, once they may do `permission` there. */
-function homeFor(locals: App.Locals, permission: Permission) {
-	const user = requireUser(locals);
-	// The UI shows one home for now (D14).
-	const [home] = listHomesForUser(user.id);
-	if (!home) redirect(303, '/');
-	requirePermission(user, home.id, permission);
-	return { user, home };
-}
-
 export const load: PageServerLoad = ({ locals, params }) => {
-	const { user, home } = homeFor(locals, 'home:view');
+	const { user, home } = requireHome(locals, 'home:view');
 	const room = getRoom(home.id, params.roomId);
 	if (!room) error(404, 'Not found');
 	return { room, canEdit: can(user, home.id, 'home:configure') };
 };
 
 export const actions = {
-	rename: async ({ locals, params, request }) => {
-		const { home } = homeFor(locals, 'home:configure');
-		const values = { name: textField(await request.formData(), 'name') };
+	save: async ({ locals, params, request }) => {
+		const { home } = requireHome(locals, 'home:configure');
+		const values = textFields(await request.formData(), roomInput.keyof().options);
 		const parsed = roomInput.safeParse(values);
-		if (!parsed.success) {
-			const errors = Object.fromEntries(
-				parsed.error.issues.map((issue) => [String(issue.path[0]), issue.message])
-			);
-			return fail(400, { ...values, errors });
+		if (!parsed.success) return fail(400, { values, errors: fieldErrors(parsed.error) });
+		const result = updateRoom(home.id, params.roomId, values);
+		if (!result.ok && result.reason === 'not-found') error(404, 'Not found');
+		if (!result.ok) {
+			return fail(400, { values, errors: { name: 'There is already a room with that name.' } });
 		}
-		if (!renameRoom(home.id, params.roomId, parsed.data)) error(404, 'Not found');
-		return { renamed: true };
+		redirect(303, '/rooms');
 	}
 } satisfies Actions;
 ```
 
-- `requirePermission()` stops the request: 404 for someone outside the home, so they learn nothing about it, and 403 for a member without the permission. Use `can()` only to decide what the page shows (`canEdit`). Hiding a button is not security.
-- The home comes from the user's memberships, never from the form or the URL. Ids that do come from them (`params.roomId`) go to the data function along with `home.id`; `null` or `false` means 404.
-- Read fields with `textField()`, validate with the schema's `safeParse()`, and return `fail(400, ...)` with the values and messages so the form can be shown again.
+- `requireHome()` (in `#lib/server/permissions/guard.ts`) finds the signed-in user's home and calls `requirePermission()`, which stops the request: 404 for someone outside the home, so they learn nothing about it, and 403 for a member without the permission. Use `can()` only to decide what the page shows (`canEdit`). Hiding a button is not security.
+- The home comes from the user's memberships, never from the form or the URL. Ids that do come from them (`params.roomId`) go to the data function along with `home.id`; `null`, `false` or a `not-found` result means 404.
+- Read fields with `textFields()`, check them with the schema's `safeParse()`, and return `fail(400, ...)` with the values and `fieldErrors()` so the form can be shown again. Then pass the same raw values to the data function, which parses them itself: where the schema transforms values, `parsed.data` doesn't have the input's type.
+- A page with named actions can't also have a `default` one: SvelteKit answers 500.
 - `src/routes/` can't import `#lib/server/db` or `drizzle-orm`: ESLint refuses it (rule 1).
 
 ## 5. Write the isolation tests
@@ -315,7 +303,7 @@ Before calling it done:
 - [ ] The function takes `homeId`, and every `where` and domain-table join includes it.
 - [ ] Ids of other rows in the input are checked against `homeId`.
 - [ ] The doc comment names the permission the caller checks.
-- [ ] Every load function and form action that calls it uses `requirePermission()` with that permission first.
+- [ ] Every load function and form action that calls it uses `requireHome()` or `requirePermission()` with that permission first.
 - [ ] Each function has an isolation test with a second home, reading rows back after a refused write.
 - [ ] A new table has `home_id` and an index on it, and its migration is generated and committed with the schema.
 - [ ] docs/spec.md is updated if the data model or permissions changed, and docs/decisions.md if a decision did.

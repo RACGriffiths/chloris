@@ -15,6 +15,13 @@
       "when": 1795471079792,
       "tag": "0001_invite_links",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795514136038,
+      "tag": "0002_rooms_and_plants",
+      "breakpoints": true
     }
   ]
 }

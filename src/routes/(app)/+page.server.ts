@@ -1,6 +1,8 @@
 import { redirect } from '@sveltejs/kit';
 import { requireUser } from '#lib/server/auth/require.js';
 import { listHomesForUser } from '#lib/server/data/homes.js';
+import { listPlants } from '#lib/server/data/plants.js';
+import { listRooms } from '#lib/server/data/rooms.js';
 import { requirePermission } from '#lib/server/permissions/guard.js';
 import { can, canCreateHome } from '#lib/server/permissions/index.js';
 import type { PageServerLoad } from './$types';
@@ -15,12 +17,17 @@ export const load: PageServerLoad = ({ locals }) => {
 	const [home] = listHomesForUser(user.id);
 	if (!home) {
 		if (canCreateHome(user)) redirect(303, '/homes/new');
-		return { name: user.name, home: null, canManageMembers: false };
+		return { name: user.name, home: null };
 	}
 	requirePermission(user, home.id, 'home:view');
 	return {
 		name: user.name,
-		home: { name: home.name },
-		canManageMembers: can(user, home.id, 'member:manage')
+		home: {
+			name: home.name,
+			plantCount: listPlants(home.id).length,
+			roomCount: listRooms(home.id).length
+		},
+		canManageMembers: can(user, home.id, 'member:manage'),
+		canEditPlants: can(user, home.id, 'plant:edit')
 	};
 };
