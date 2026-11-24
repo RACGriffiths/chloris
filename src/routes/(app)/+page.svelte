@@ -1,4 +1,6 @@
 <script lang="ts">
+	import LeafIcon from '@lucide/svelte/icons/leaf';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SproutIcon from '@lucide/svelte/icons/sprout';
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
 	import { resolve } from '$app/paths';
@@ -7,6 +9,8 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 </script>
 
 <svelte:head>
@@ -24,13 +28,44 @@
 	{/if}
 
 	<Card.Root class="mt-6">
-		<Card.Header>
-			<SproutIcon class="mb-2 size-8 text-primary" aria-hidden="true" />
-			<Card.Title>Nothing to look after yet</Card.Title>
-			<Card.Description>
-				Rooms and plants are coming next. Then this page will show what needs watering today.
-			</Card.Description>
-		</Card.Header>
+		{#if data.home.plantCount === 0}
+			<Card.Header>
+				<SproutIcon class="mb-2 size-8 text-primary" aria-hidden="true" />
+				<Card.Title>Nothing to look after yet</Card.Title>
+				<Card.Description>
+					{#if data.canEditPlants}
+						Add your plants, room by room. Once care logging arrives, this page will show what needs
+						watering today.
+					{:else}
+						Nobody has added any plants yet.
+					{/if}
+				</Card.Description>
+			</Card.Header>
+			{#if data.canEditPlants}
+				<Card.Footer>
+					<Button href={resolve('plants/new')} class="h-11 w-full">
+						<PlusIcon />
+						Add a plant
+					</Button>
+				</Card.Footer>
+			{/if}
+		{:else}
+			<Card.Header>
+				<LeafIcon class="mb-2 size-8 text-primary" aria-hidden="true" />
+				<Card.Title>
+					{count(data.home.plantCount, 'plant', 'plants')} in
+					{count(data.home.roomCount, 'room', 'rooms')}
+				</Card.Title>
+				<Card.Description>
+					Once care logging arrives, this page will show what needs watering today.
+				</Card.Description>
+			</Card.Header>
+			<Card.Footer>
+				<Button href={resolve('plants')} variant="outline" class="h-11 w-full">
+					See your plants
+				</Button>
+			</Card.Footer>
+		{/if}
 	</Card.Root>
 {:else}
 	<h1 class="text-2xl font-semibold tracking-tight">You don't have access to a home</h1>
