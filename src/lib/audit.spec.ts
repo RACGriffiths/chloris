@@ -9,6 +9,10 @@ describe('describeAuditEntry', () => {
 			describeAuditEntry({ action: 'sign-in', detail: { method: 'invite' } }),
 			describeAuditEntry({ action: 'passkey-added', detail: { name: 'Chrome on Android' } }),
 			describeAuditEntry({ action: 'passkey-removed', detail: { name: 'Safari on iPhone' } }),
+			describeAuditEntry({
+				action: 'passkey-removed',
+				detail: { name: 'Pixel', unproven: true }
+			}),
 			describeAuditEntry({ action: 'home-created', detail: { name: 'The flat' } }),
 			describeAuditEntry({ action: 'invite-created', detail: { role: 'owner' } }),
 			describeAuditEntry({ action: 'invite-cancelled', detail: { role: 'viewer' } }),
@@ -27,6 +31,7 @@ describe('describeAuditEntry', () => {
 			'signed in for the first time, from an invite link',
 			'added a passkey (Chrome on Android)',
 			'removed a passkey (Safari on iPhone)',
+			'lost a passkey (Pixel) added before their email address was confirmed',
 			'created the home The flat',
 			'made an invite link for an owner',
 			'cancelled an invite link for a viewer',

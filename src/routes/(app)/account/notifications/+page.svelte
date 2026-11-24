@@ -65,7 +65,8 @@
 				<Alert.Description>
 					<p>
 						Digests go only to a confirmed address. We'll email {data.email} a sign-in link: using it
-						confirms the address, and signs you out on your other devices.
+						confirms the address, signs you out on your other devices and removes your passkeys, so that
+						only the owner of the address can sign in. You can add a passkey again straight away.
 					</p>
 					<form
 						method="POST"

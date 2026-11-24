@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+	addVirtualAuthenticator,
 	createInvite,
 	expectHome,
 	joinWithNewAccount,
@@ -58,6 +59,43 @@ test('someone signed in joins with their own account', async ({ page, browser },
 	// The link is used up.
 	await friend.goto(link);
 	await expect(friend.getByRole('heading', { name: "This invite doesn't work" })).toBeVisible();
+});
+
+test("a passkey added under someone else's address stops working once they prove it", async ({
+	page,
+	browser
+}, testInfo) => {
+	await newOwner(page, 'Squatted flat');
+	const link = await createInvite(page, 'Viewer');
+
+	// Someone with the invite link joins with Alice's address, which isn't theirs, and adds a
+	// passkey, to sign in to her account once she starts using it (D50).
+	const squatter = await newPhone(browser, testInfo);
+	await addVirtualAuthenticator(squatter);
+	const alice = newEmail('alice');
+	await squatter.goto(link);
+	await squatter.getByLabel('Your name').fill('Alice');
+	await squatter.getByLabel('Email').fill(alice);
+	await squatter.getByRole('button', { name: 'Join Squatted flat' }).click();
+	await squatter.getByRole('button', { name: 'Add a passkey' }).click();
+	await expectHome(squatter, 'Squatted flat');
+
+	// Later the real Alice gets a sign-in link, from whoever runs the server. The account has no
+	// passkey now, so she's offered one of her own.
+	const real = await newPhone(browser, testInfo);
+	await useLink(real, signInLink(alice));
+	await expect(real.getByRole('heading', { name: 'Welcome, Alice' })).toBeVisible();
+
+	// The squatter is signed out, and their passkey no longer signs in.
+	await squatter.addInitScript(() => {
+		PublicKeyCredential.isConditionalMediationAvailable = () => Promise.resolve(false);
+	});
+	await squatter.goto('/');
+	await expect(squatter.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+	await squatter.getByRole('button', { name: 'Sign in with a passkey' }).click();
+	await expect(squatter.getByRole('alert')).toBeVisible();
+	await squatter.goto('/');
+	await expect(squatter.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
 test('a cancelled invite stops working', async ({ page, browser }, testInfo) => {

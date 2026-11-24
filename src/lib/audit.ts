@@ -29,7 +29,9 @@ export type SignInMethod = 'passkey' | 'link' | 'invite';
 export interface AuditDetails {
 	'sign-in': { method: SignInMethod };
 	'passkey-added': { name: string };
-	'passkey-removed': { name: string };
+	/** `unproven`: removed because it was added before the account's email address was proven
+	 * (D50), rather than by the person. */
+	'passkey-removed': { name: string; unproven?: boolean };
 	'home-created': { name: string };
 	'invite-created': { role: string };
 	'invite-cancelled': { role: string };
@@ -61,7 +63,9 @@ export function describeAuditEntry(entry: AuditEntry): string {
 		case 'passkey-added':
 			return `added a passkey (${entry.detail.name})`;
 		case 'passkey-removed':
-			return `removed a passkey (${entry.detail.name})`;
+			return entry.detail.unproven
+				? `lost a passkey (${entry.detail.name}) added before their email address was confirmed`
+				: `removed a passkey (${entry.detail.name})`;
 		case 'home-created':
 			return `created the home ${entry.detail.name}`;
 		case 'invite-created':
@@ -98,7 +102,7 @@ export interface ServerDetails {
 	'sign-in': { method: SignInMethod };
 	'sign-in-failed': { method: SignInMethod };
 	'passkey-added': { name: string };
-	'passkey-removed': { name: string };
+	'passkey-removed': { name: string; unproven?: boolean };
 	/** `limit` names one of the rate limits (D56); `key` is what it counted: an address, a
 	 * person's id or an email address. */
 	'limit-reached': { limit: string; key: string };

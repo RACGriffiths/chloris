@@ -97,6 +97,8 @@ describe('initDatabase', () => {
 
 		expect(result).toEqual({ applied: 0, backupFile: null });
 		expect(fs.existsSync(path.join(dataDir, 'chloris.db'))).toBe(true);
+		// Only the user running Chloris may open it: it holds every home's data.
+		expect(fs.statSync(dataDir).mode & 0o777).toBe(0o700);
 		expect(getConnection().sqlite.prepare('SELECT 1 AS ok').get()).toEqual({ ok: 1 });
 	});
 
@@ -131,6 +133,7 @@ describe('initDatabase', () => {
 
 		expect(result.applied).toBe(1);
 		expect(result.backupFile).toMatch(/backups\/chloris-.+-before-migration\.db$/);
+		expect(fs.statSync(path.dirname(result.backupFile!)).mode & 0o777).toBe(0o700);
 		const backup = new Database(result.backupFile!, { readonly: true });
 		const columns = backup.prepare('SELECT name FROM pragma_table_info(?)').all('room');
 		expect(columns).toEqual([{ name: 'id' }, { name: 'name' }]);

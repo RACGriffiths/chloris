@@ -12,6 +12,13 @@ export const databaseFile = (dataDir: string) => path.join(dataDir, 'chloris.db'
 export const backupsDir = (dataDir: string) => path.join(dataDir, 'backups');
 
 /**
+ * The mode for a folder Chloris makes for its own data (the data folder, its backups and the
+ * default photo folder): only the user running Chloris may open it, since it holds every home's
+ * data. Folders the host made, such as a `PHOTOS_DIR` on another drive, are left as they are.
+ */
+export const PRIVATE_FOLDER = 0o700;
+
+/**
  * A UTC time for a file or folder name, to the second, with no colons (Windows and some shares
  * refuse them): `2026-11-24T03-00-00Z`. Names made with it sort in time order.
  */

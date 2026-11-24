@@ -34,6 +34,7 @@ describe('initPhotoStorage', () => {
 		initPhotoStorage(dir, { create: true });
 
 		expect(fs.statSync(dir).isDirectory()).toBe(true);
+		expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
 	});
 
 	it("refuses to start if a PHOTOS_DIR that was set doesn't exist, rather than making it", () => {
