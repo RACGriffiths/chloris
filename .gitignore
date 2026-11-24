@@ -31,6 +31,8 @@ blob-report/
 # Personal Claude Code files (not shared)
 CLAUDE.local.md
 .claude/settings.local.json
+# Claude Code's worktrees: copies of other branches, which Prettier and ESLint must skip
+.claude/worktrees/
 
 # OS and editor clutter
 .DS_Store

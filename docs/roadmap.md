@@ -23,7 +23,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Multi-home data model (homes and memberships), with one home in the UI
 - [x] Fixed roles and the `can()` permission helper, with tests that try to cross between homes
 - [x] Invite links: copyable, single use, expiring, carrying a role
-- [ ] Claude Code skill for adding a data-access function (home scoping, `can()` check, isolation test), written once the first few exist
+- [x] Claude Code skill for adding a data-access function (home scoping, `can()` check, isolation test), written once the first few exist
 - [ ] Rooms and plants: create, edit, list, plant page
 - [ ] Care log (events, backdating, undo) and schedules (intervals, snooze, recheck delay)
 - [ ] Today view, including bulk actions
