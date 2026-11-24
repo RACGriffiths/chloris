@@ -85,8 +85,8 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Home | — | Name, time zone, winter months | A BetterAuth organisation. |
 | Membership | User + home | Role, expires at | Expiry is used for sitters. |
 | Invite | Home | Role, token hash, created by, expires at, used at, used by | A link that works once, for 7 days. Only a hash of its token is stored. |
-| Room | Home | Name, indoor or outdoor, light level | Light: low, medium, bright, direct sun. |
-| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. |
+| Room | Home | Name (unique in the home, ignoring case), indoor or outdoor, light level | Light: low, medium, bright, direct sun, or not given. Only an empty room can be deleted (D30). |
+| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status and parent plant are stored from version 1, before their screens; cover photo comes with photos (D29). Plants aren't deleted (D30). |
 | Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, repot, prune, mist, pest treatment, move, checked. A check records which task it was for. |
 | Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | Next due is the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. |
 | Measurement type | Home | Name, unit | E.g. height in cm, leaf count. |
@@ -148,8 +148,10 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 ### Plants
 
-- A list or grid of cover photos, filtered by room, tag or what is due.
-- Each plant's page holds its schedule, care history, photo timeline, measurements and notes.
+- A list or grid of cover photos, filtered by room, tag or what is due. Plants are listed under their rooms. Until cover photos arrive, each has a tile showing its initial. The room and tag filters are links, so they work before JavaScript loads.
+- Each plant's page holds its schedule, care history, photo timeline, measurements and notes. Until those arrive, it shows the plant's details and notes, with a section saying what each later feature will add.
+- A Rooms page lists the home's rooms and how many plants each holds. Those who may configure the home add, change and delete rooms there. A room can be deleted only once it's empty; its plants are moved first (D30). Adding a plant to a home with no rooms asks for the first room.
+- Plants aren't deleted: one that died, was given away or was sold goes to the Memorial view.
 
 ### Care log and schedules
 

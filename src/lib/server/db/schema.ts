@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+	type AnySQLiteColumn
+} from 'drizzle-orm/sqlite-core';
+import { PLANT_STATUSES } from '../../plants';
+import { LIGHT_LEVELS, ROOM_SETTINGS } from '../../rooms';
 
 /**
  * Drizzle table definitions. After changing this file, run `npm run db:generate` to create a
@@ -215,4 +224,74 @@ export const invite = sqliteTable(
 		createdAt: createdAt()
 	},
 	(table) => [index('invite_home_id_idx').on(table.homeId)]
+);
+
+// Rooms and plants (docs/spec.md, Data model; D29, D30).
+
+/** A room or outdoor space in a home. Its name is unique within the home, ignoring case. */
+export const room = sqliteTable(
+	'room',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		/** Indoors or outdoors. The `enum` lists only type the column; SQLite doesn't enforce them. */
+		setting: text('setting', { enum: ROOM_SETTINGS }).notNull().default('indoor'),
+		/** How much light the room gets, or `null` if not given. */
+		light: text('light', { enum: LIGHT_LEVELS }),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(table) => [index('room_home_id_idx').on(table.homeId)]
+);
+
+/**
+ * A plant in a home, always in one of its rooms. A room with plants can't be deleted (D30): the
+ * foreign key has no `on delete` action, so SQLite refuses at the end of the statement, which
+ * still lets a home's deletion cascade to both.
+ */
+export const plant = sqliteTable(
+	'plant',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		roomId: text('room_id')
+			.notNull()
+			.references(() => room.id),
+		nickname: text('nickname').notNull(),
+		/** Free text: there is no species database (docs/spec.md, Out of scope). */
+		species: text('species'),
+		/** A calendar date, `YYYY-MM-DD`, with no time or time zone. */
+		acquiredOn: text('acquired_on'),
+		/** Where it came from: a shop, a friend, a cutting. */
+		source: text('source'),
+		pot: text('pot'),
+		soil: text('soil'),
+		/** Lower-case labels, in the order given, each at most once. */
+		tags: text('tags', { mode: 'json' })
+			.$type<string[]>()
+			.notNull()
+			.default(sql`'[]'`),
+		notes: text('notes'),
+		/** Only active plants are listed. The others wait for the Memorial view. */
+		status: text('status', { enum: PLANT_STATUSES }).notNull().default('active'),
+		/** When the status last changed, `YYYY-MM-DD`; `null` while active. Screens come later. */
+		statusOn: text('status_on'),
+		statusNote: text('status_note'),
+		/** The plant this one was grown from, in the same home. Screens come later (Later: family tree). */
+		parentId: text('parent_id').references((): AnySQLiteColumn => plant.id, {
+			onDelete: 'set null'
+		}),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(table) => [
+		index('plant_home_id_idx').on(table.homeId),
+		index('plant_room_id_idx').on(table.roomId),
+		index('plant_parent_id_idx').on(table.parentId)
+	]
 );
