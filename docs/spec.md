@@ -86,12 +86,12 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Membership | User + home | Role, expires at | Expiry is used for sitters. |
 | Invite | Home | Role, token hash, created by, expires at, used at, used by | A link that works once, for 7 days. Only a hash of its token is stored. |
 | Room | Home | Name (unique in the home, ignoring case), indoor or outdoor, light level | Light: low, medium, bright, direct sun, or not given. Only an empty room can be deleted (D30). |
-| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status, parent plant and cover photo are stored from version 1, before their screens (D29, D38). Plants aren't deleted (D30). |
-| Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, mist, prune, repot, pest treatment, move, checked. A check records which task it was for. Done at can be earlier than when it was logged. Undoing deletes the event (D32). The user becomes empty if their account is deleted, so the home keeps its history. The photo is stored before its screens, which come with the photo timeline (D33, D38). |
+| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status and parent plant are stored from version 1, before their screens (D29). The cover photo is one of the plant's own photos; without one, its latest photo is shown (D42). Plants aren't deleted (D30). |
+| Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, mist, prune, repot, pest treatment, move, checked. A check records which task it was for. Done at can be earlier than when it was logged. Undoing deletes the event (D32). The user becomes empty if their account is deleted, so the home keeps its history. A photo logged with it joins the plant's timeline, and stays there if the care is undone (D41). |
 | Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | One per task on a plant; moves and checks aren't scheduled. Next due is a calendar date in the home's time zone, the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task since then + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. Doing or checking the task ends its snooze (D31). The winter interval is stored from version 1 and used from version 2 (D33). |
 | Measurement type | Home | Name, unit | E.g. height in cm, leaf count. |
 | Measurement | Plant, type, user | Value, taken at, optional photo | Charted per type. |
-| Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped (D36). Files are write-once, named by the file key rather than the photo's id (D35). The user becomes empty if their account is deleted. |
+| Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped (D36), and can be corrected on the photo's page (D39). Files are write-once, named by the file key rather than the photo's id (D35). The user becomes empty if their account is deleted. |
 | Push subscription | User | Endpoint, keys, device name | Removed when the push service reports it gone. |
 | Notification settings | User + home | Channels, digest time, quiet hours | One set per home. |
 | Digest log | User + home | Date, channel, sent at | Stops a restart from sending a digest twice. |
@@ -126,6 +126,8 @@ Passkeys are the main way in, with one-time sign-in links (magic links) as the f
 | Invite and remove members, change roles | `member:manage` | Yes | No | No | No |
 | Export or delete the home | `home:export`, `home:delete` | Yes | No | No | No |
 
+Changing a photo's caption or date, or deleting it, needs `photo:add`, and only the person who added it may, unless they also have `plant:edit` (D40).
+
 A sitter's access ends automatically on its expiry date: an expired membership grants nothing. A home can have more than one owner.
 
 ### How it is enforced
@@ -150,14 +152,14 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 ### Plants
 
-- A list or grid of cover photos, filtered by room, tag or what is due. Plants are listed under their rooms. Until cover photos arrive, each has a tile showing its initial. The room and tag filters are links, so they work before JavaScript loads.
-- Each plant's page holds its schedule, care history, photo timeline, measurements and notes. Until those arrive, it shows the plant's details and notes, with a section saying what each later feature will add.
+- A list or grid of cover photos, filtered by room, tag or what is due. Plants are listed under their rooms. Each plant's tile shows its cover photo, or its initial while it has no photos (D42). The room and tag filters are links, so they work before JavaScript loads.
+- Each plant's page holds its schedule, care history, photo timeline, measurements and notes. Until measurements arrive, it has a section saying what they will add.
 - A Rooms page lists the home's rooms and how many plants each holds. Those who may configure the home add, change and delete rooms there. A room can be deleted only once it's empty; its plants are moved first (D30). Adding a plant to a home with no rooms asks for the first room.
 - Plants aren't deleted: one that died, was given away or was sold goes to the Memorial view.
 
 ### Care log and schedules
 
-- Each event records who and when, takes an optional note or photo, can be backdated and can be undone.
+- Each event records who and when, takes an optional note or photo, can be backdated and can be undone. A photo logged with care joins the plant's timeline, and a photo with no date of its own is dated when the care was done (D41).
 - Each task type has its own interval, with an optional winter interval for the months set on the home.
 - Snooze for a day, three days or a chosen date.
 - A plant's page lists its schedules with when each is next due. "Done" logs the task in one tap; once it's due, "Not needed" records a check and "Snooze" puts it off. A snooze can be cancelled.
@@ -167,11 +169,11 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 ### Photo timeline
 
-- Photos in date order, by when they were taken rather than uploaded.
-- A side-by-side or slider comparison of any two dates.
-- When adding a photo, the previous one shows faintly over the camera view to keep the framing consistent.
-- Any photo can be set as the plant's cover.
-- Until the timeline arrives, a plant's page lists its photos as thumbnails, the latest taken first, each opening the full size, with a form to add one (D38).
+- Photos in date order, by when they were taken rather than uploaded: on the plant's page, under a heading for each month, the latest first. The latest 12 are shown, with a link to the rest (D39).
+- Each photo has a page of its own, with Newer and Older links, when it was taken, who added it and the care it was added with. Tapping the photo opens the full size (D39).
+- A photo's caption and the date it was taken can be corrected on its page, and it can be deleted there in two taps (D40).
+- Any photo can be set as the plant's cover. Until one is, the latest photo is (D42).
+- Version 2: a side-by-side or slider comparison of any two dates, and, when adding a photo, the previous one showing faintly over the camera view to keep the framing consistent.
 
 ### Measurements
 

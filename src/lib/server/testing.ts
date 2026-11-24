@@ -58,7 +58,10 @@ export function setPlantStatus(plantId: string, status: Exclude<PlantStatus, 'ac
 	getConnection().db.update(plant).set({ status }).where(eq(plant.id, plantId)).run();
 }
 
-/** Deletes a photo the way the photo timeline will (D38): its row stays, marked deleted. */
+/**
+ * Marks a photo deleted directly, without what `deletePhoto` also does (clearing a cover), to
+ * prove that reads leave out any photo marked deleted.
+ */
 export function markPhotoDeleted(photoId: string, at = new Date()): void {
 	getConnection().db.update(photo).set({ deletedAt: at }).where(eq(photo.id, photoId)).run();
 }
