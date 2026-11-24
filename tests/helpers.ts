@@ -38,12 +38,18 @@ export async function useLink(page: Page, link: string) {
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
 
+/** Waits for the home page, the Today view, of the home called `name`. */
+export async function expectHome(page: Page, name: string) {
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today');
+	await expect(page.locator('main').getByText(name, { exact: true })).toBeVisible();
+}
+
 export async function createHome(page: Page, name: string) {
 	await expect(page.getByRole('heading', { name: 'Set up your home' })).toBeVisible();
 	await page.getByLabel('Name').fill(name);
 	await page.getByLabel('Time zone').selectOption('Europe/London');
 	await page.getByRole('button', { name: 'Create home' }).click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
+	await expectHome(page, name);
 }
 
 /** A page in a separate browser, with no cookies, on the same kind of phone as the test's. */
@@ -83,7 +89,7 @@ export async function joinWithNewAccount(page: Page, link: string, homeName: str
 	// As after a first sign-in, a passkey is offered.
 	await expect(page.getByRole('heading', { name: `Welcome, ${name}` })).toBeVisible();
 	await page.getByRole('link', { name: 'Not now' }).click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(homeName);
+	await expectHome(page, homeName);
 }
 
 /** The id in the page's address, such as a plant's after it's added. */
@@ -97,4 +103,60 @@ export function idFromUrl(page: Page, pattern: RegExp): string {
 export async function post(page: Page, path: string, form: Record<string, string>) {
 	const response = await page.request.post(path, { form, headers: { origin } });
 	return response.status();
+}
+
+/** A calendar date in London, `days` from today. */
+export function londonDate(days = 0): string {
+	const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+	const date = new Date(`${today}T00:00:00Z`);
+	date.setUTCDate(date.getUTCDate() + days);
+	return date.toISOString().slice(0, 10);
+}
+
+/** From a plant's page: adds a schedule for one task and comes back. */
+export async function addSchedule(page: Page, task: string, days: number) {
+	await page.getByRole('link', { name: 'Add a schedule' }).click();
+	await expect(page.getByRole('heading', { name: 'Add a schedule' })).toBeVisible();
+	// The radio button itself is hidden behind its tile, so tap the tile, as a person would.
+	await page.locator('label').filter({ hasText: task }).click();
+	await expect(page.getByRole('radio', { name: task })).toBeChecked();
+	await page.getByLabel('How often').fill(String(days));
+	await page.getByRole('button', { name: 'Add schedule' }).click();
+	await expect(page.getByRole('heading', { name: 'Care', exact: true })).toBeVisible();
+}
+
+/** From a plant's page: logs care with the Log other care form. */
+export async function logOtherCare(
+	page: Page,
+	care: { type?: string; doneAt?: string; note?: string }
+) {
+	const form = page.locator('details').filter({ hasText: 'Log other care' });
+	// An open <details> has an empty `open` attribute; a closed one has none.
+	if ((await form.getAttribute('open')) === null) await page.getByText('Log other care').click();
+	if (care.type) await page.getByLabel('What you did').selectOption({ label: care.type });
+	await page.getByLabel('When').fill(care.doneAt ?? '');
+	await page.getByLabel('Note').fill(care.note ?? '');
+	await page.getByRole('button', { name: 'Log care' }).click();
+}
+
+/** On the Rooms page: adds a room and waits for it to be listed. */
+export async function addRoom(page: Page, name: string, choices: { outdoor?: boolean } = {}) {
+	await page.getByLabel('Room name').fill(name);
+	if (choices.outdoor) await page.getByRole('radio', { name: 'Outdoors' }).check();
+	await page.getByRole('button', { name: 'Add room' }).click();
+	await expect(page.getByRole('status')).toHaveText(`Added ${name}.`);
+}
+
+/** Adds a plant to a room that exists, and returns its id from its page's address. */
+export async function addPlant(page: Page, nickname: string, room: string, tags = '') {
+	await page.goto('/plants/new');
+	await page.getByLabel('Name', { exact: true }).fill(nickname);
+	await page.getByLabel('Room').selectOption({ label: room });
+	if (tags) {
+		await page.getByText('More details').click();
+		await page.getByLabel('Tags').fill(tags);
+	}
+	await page.getByRole('button', { name: 'Add plant' }).click();
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText(nickname);
+	return idFromUrl(page, /^\/plants\/([\w-]+)$/);
 }

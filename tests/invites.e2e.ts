@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
 	createInvite,
+	expectHome,
 	joinWithNewAccount,
 	newEmail,
 	newOwner,
@@ -28,7 +29,7 @@ test('an owner invites someone, who joins with a new account and sees the home',
 	expect((await invitee.goto('/members'))?.status()).toBe(403);
 	// An invited account can never create a home (D26).
 	await invitee.goto('/homes/new');
-	await expect(invitee.getByRole('heading', { level: 1 })).toHaveText('Shared flat');
+	await expectHome(invitee, 'Shared flat');
 
 	// The owner sees the new member, and the invite is no longer waiting.
 	await page.reload();
@@ -52,7 +53,7 @@ test('someone signed in joins with their own account', async ({ page, browser },
 	await friend.goto(link);
 	await expect(friend.getByText("You're signed in as")).toBeVisible();
 	await friend.getByRole('button', { name: 'Join Garden flat' }).click();
-	await expect(friend.getByRole('heading', { level: 1 })).toHaveText('Garden flat');
+	await expectHome(friend, 'Garden flat');
 
 	// The link is used up.
 	await friend.goto(link);

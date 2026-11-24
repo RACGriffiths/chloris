@@ -1,27 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createInvite, idFromUrl, joinWithNewAccount, newOwner, newPhone, post } from './helpers';
-
-/** On the Rooms page: adds a room and waits for it to be listed. */
-async function addRoom(page: Page, name: string, choices: { outdoor?: boolean } = {}) {
-	await page.getByLabel('Room name').fill(name);
-	if (choices.outdoor) await page.getByRole('radio', { name: 'Outdoors' }).check();
-	await page.getByRole('button', { name: 'Add room' }).click();
-	await expect(page.getByRole('status')).toHaveText(`Added ${name}.`);
-}
-
-/** Adds a plant to a room that exists, and returns its id from its page's address. */
-async function addPlant(page: Page, nickname: string, room: string, tags = '') {
-	await page.goto('/plants/new');
-	await page.getByLabel('Name', { exact: true }).fill(nickname);
-	await page.getByLabel('Room').selectOption({ label: room });
-	if (tags) {
-		await page.getByText('More details').click();
-		await page.getByLabel('Tags').fill(tags);
-	}
-	await page.getByRole('button', { name: 'Add plant' }).click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(nickname);
-	return idFromUrl(page, /^\/plants\/([\w-]+)$/);
-}
+import {
+	addPlant,
+	addRoom,
+	createInvite,
+	idFromUrl,
+	joinWithNewAccount,
+	newOwner,
+	newPhone,
+	post
+} from './helpers';
 
 const plantsLink = (page: Page) =>
 	page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Plants' });
@@ -63,13 +50,13 @@ test('an owner adds a first plant, naming its room on the way, and sees its page
 		await expect(page.getByRole('heading', { name: section })).toBeVisible();
 	}
 
-	// It's listed under its room, and the home page counts it.
+	// It's listed under its room, and the home page asks for its first schedule.
 	await plantsLink(page).click();
 	const kitchen = page.getByRole('region', { name: 'Kitchen' });
 	await expect(kitchen.getByText('Bright light')).toBeVisible();
 	await expect(kitchen.getByRole('link', { name: /Fern/ })).toBeVisible();
 	await page.goto('/');
-	await expect(page.getByText('1 plant in 1 room')).toBeVisible();
+	await expect(page.getByText('No regular care yet')).toBeVisible();
 });
 
 test('a plant is edited and moved, and the list filters by room and by tag', async ({ page }) => {

@@ -59,6 +59,13 @@ export function careEventName(type: string, checkedTask: string | null): string 
 	return named(type)?.done ?? type;
 }
 
+/** A button that logs a task on several plants at once: "Water all 3", "Treat all 3 for pests". */
+export function allText(task: Task, count: number): string {
+	return task === 'pest-treatment'
+		? `Treat all ${count} for pests`
+		: `${taskName(task)} all ${count}`;
+}
+
 /** How often a schedule comes round: "Every day", "Every 7 days". */
 export function everyText(days: number): string {
 	return days === 1 ? 'Every day' : `Every ${days} days`;

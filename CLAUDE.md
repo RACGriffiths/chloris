@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, and the care log and schedules are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, and the Today view are in.
 
 ## Read first
 
@@ -53,13 +53,13 @@ src/
                       shared by server and pages: room, plant and care choices, their names on
                       screen, calendar dates and times in the home's time zone
   lib/components/     the app's own components (plant form, room fields, plant tile, care schedule,
-                      log care form, schedule fields)
+                      log care form, schedule fields, due task)
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
                       change package versions, so check package.json afterwards)
   routes/
     (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
-    (app)/        the signed-in app: the home page, plants, rooms, members and invites, the account
-                  page
+    (app)/        the signed-in app: the Today view (the home page), plants, rooms, members and
+                  invites, the account page
 tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
 ```
 
@@ -106,6 +106,8 @@ Much SvelteKit material online describes version 2. In this project:
 - `SubmitFunction`, the type of a `use:enhance` callback, comes from `$app/forms` in SvelteKit 3, not `@sveltejs/kit`. shadcn-svelte's `buttonVariants` is exported from a `.svelte` file, so ESLint rejects it (see above): to style a `<summary>` as a button, write the classes out.
 - A `<details>` element opens without JavaScript, so it holds the optional parts of the plant page (Snooze, Log other care, the confirmation for removing care). In Playwright, click its `summary`; an open one has `open=""`, which is falsy, so compare `getAttribute('open')` with `null`.
 - A `min` or `max` on a date field stops the browser from sending a value outside it, so an end-to-end test of the server's own check has to post the form directly (`post()` in `tests/helpers.ts`).
+- Playwright's `toHaveText` reads text hidden with `aria-hidden`, such as a plant tile's initial inside a plant's link, so match the name with a regular expression there. The home page's heading is "Today": wait for it with `expectHome(page, name)` from `tests/helpers.ts`.
+- To log a task on several plants, a form repeats a hidden field (`plantId`) and the action reads it with `textList()` from `#lib/server/forms.js`. Two submit buttons in one form can each send their own `name` and `value` (Done or "Not needed"), with or without JavaScript.
 - In Playwright, `getByLabel` and `getByRole({ name })` match substrings: "Kitchen" also finds "Edit Kitchen", and "Name" finds "Room name". Use `exact: true`. After a click that navigates, wait for something on the next page before filling a field or reading the URL, or the step acts on the old page.
 
 ## Commands

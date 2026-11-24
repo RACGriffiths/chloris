@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { careEventName, dueText, everyText, isTask, taskName, taskNoun } from './care';
+import { allText, careEventName, dueText, everyText, isTask, taskName, taskNoun } from './care';
 
 describe('names', () => {
 	it('names each task as an instruction, a noun and a past event', () => {
@@ -14,6 +14,13 @@ describe('names', () => {
 		expect(isTask('repot')).toBe(true);
 		expect(isTask('move')).toBe(false);
 		expect(isTask('checked')).toBe(false);
+	});
+});
+
+describe('allText', () => {
+	it('names a task done on several plants at once', () => {
+		expect(allText('water', 3)).toBe('Water all 3');
+		expect(allText('pest-treatment', 2)).toBe('Treat all 2 for pests');
 	});
 });
 

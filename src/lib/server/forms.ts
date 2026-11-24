@@ -5,6 +5,14 @@ export function textField(form: FormData, name: string): string {
 }
 
 /**
+ * Every value a form sent under one name, such as the plants a "Water all" button logs: each
+ * `<input type="hidden">` with that name adds one. Files are left out.
+ */
+export function textList(form: FormData, name: string): string[] {
+	return form.getAll(name).filter((value) => typeof value === 'string');
+}
+
+/**
  * A form's validation messages by field name, from a Zod schema's `safeParse()`, ready to show
  * beside each field. Where a field has several problems, the first is shown.
  */

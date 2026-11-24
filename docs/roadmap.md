@@ -26,7 +26,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Claude Code skill for adding a data-access function (home scoping, `can()` check, isolation test), written once the first few exist
 - [x] Rooms and plants: create, edit, list, plant page
 - [x] Care log (events, backdating, undo) and schedules (intervals, snooze, recheck delay)
-- [ ] Today view, including bulk actions
+- [x] Today view, including bulk actions
 - [ ] Photo pipeline: browser resize, metadata stripping, sharp variants, write-once storage, permission-checked serving
 - [ ] Photo timeline on the plant page, and cover photos
 - [ ] Memorial and lifecycle statuses
