@@ -58,6 +58,8 @@ npm run cli -- sign-in-link you@example.com
 | [docs/spec.md](docs/spec.md) | What is being built: architecture, data model, features, security |
 | [docs/decisions.md](docs/decisions.md) | Why: each design decision and its status |
 | [docs/roadmap.md](docs/roadmap.md) | In what order: phased checklists |
+| [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
+| [docs/security-review-v1.md](docs/security-review-v1.md) | The security review before version 1.0.0: what it found and fixed |
 
 ## Licence
 

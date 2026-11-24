@@ -16,7 +16,7 @@ Line numbers point at `main` before this branch, unless a finding says otherwise
 | 4 | Low | `node build/cli log` prints what people typed with control characters intact | Fixed |
 | 5 | Low | Folders Chloris makes for its data can be read by other users on the host | Fixed |
 | 6 | Low | The server's log grows without limit, and visitors who aren't signed in can add to it | Question for the owner |
-| 7 | Low | After finding 1's fix, the real owner of the address is still a member of the home the squatter joined | Recommendation for version 2 |
+| 7 | Low | After finding 1's fix, the real owner of the address is still a member of the home the squatter joined | Warning added; the rest is for version 2 |
 | 8 | Info | The Docker image ships 75 development packages, including drizzle-kit and its old esbuild | Fixed |
 | 9 | Info | Smaller observations | Notes |
 
@@ -84,7 +84,9 @@ Line numbers point at `main` before this branch, unless a finding says otherwise
 
 **What happens.** In finding 1's story, once Alice signs in she sees Mallory's home, not the one she was invited to, and she can't leave it, since leaving a home doesn't exist yet. Mallory, if an owner there, sees when Alice signs in (not where from: D58). No data of Alice's reaches Mallory.
 
-**Recommendation.** Version 2's switching between homes should list every membership and let someone leave a home. Meanwhile, the command-line tool could say when it prints a link for an existing account whose address isn't proven ("an existing account, made from an invite link, whose address isn't confirmed"), so whoever runs the server can ask before handing it over.
+**Recommendation.** Version 2's switching between homes should list every membership and let someone leave a home.
+
+**Done since.** `node build/cli sign-in-link` now warns when it prints a link for an existing account whose address isn't confirmed and which is already in a home, which only an invite link makes ("Its address isn't confirmed: it was made from an invite link, and it's in 1 home."), so whoever runs the server can check with the person before handing it over. Tested in `cli.spec.ts`.
 
 ### 8. The Docker image ships development packages (Info, fixed)
 

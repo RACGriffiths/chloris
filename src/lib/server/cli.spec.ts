@@ -3,9 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { USAGE, main, printable } from './cli';
+import { createHome } from './data/homes';
+import { createInvite, joinWithNewAccount } from './data/invites';
 import { recordServerEvent } from './data/server-log';
 import { closeDatabase, openExistingDatabase } from './db';
-import { TEST_ORIGIN, TEST_SECRET } from './testing';
+import { TEST_ORIGIN, TEST_SECRET, insertUser } from './testing';
 
 let root: string;
 let env: Record<string, string>;
@@ -44,6 +46,29 @@ describe('sign-in-link', () => {
 
 		expect(await main(['sign-in-link', 'Owner@example.com'], env, out)).toBe(0);
 		expect(logged.join('\n')).toContain('(an existing account, which may create a home)');
+		// Its address isn't proven yet, but it can't be in a home, so there's nothing to warn of.
+		expect(logged.join('\n')).not.toContain("isn't confirmed");
+	});
+
+	it('warns when the account was made from an invite link and its address is unconfirmed', async () => {
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		// Someone with an invite link joined a home with this address, perhaps not their own.
+		openExistingDatabase(env.DATA_DIR);
+		const owner = insertUser('host@example.com', { canCreateHome: true });
+		const home = createHome(owner, { name: 'Flat', timeZone: 'Europe/London' });
+		const { token } = createInvite(home.id, owner, { role: 'viewer' });
+		joinWithNewAccount(token, { name: 'Alice', email: 'alice@example.com' });
+		closeDatabase();
+		logged = [];
+
+		expect(await main(['sign-in-link', 'alice@example.com'], env, out)).toBe(0);
+
+		const output = logged.join('\n');
+		expect(output).toContain('alice@example.com (an existing account)');
+		expect(output).toMatch(/^ {2}http:\/\/localhost:5173\/sign-in\/link\?token=\w+$/m);
+		expect(output).toContain(
+			"Its address isn't confirmed: it was made from an invite link, and it's in 1 home."
+		);
 	});
 
 	it('explains how to use it when the arguments are wrong', async () => {
