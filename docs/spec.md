@@ -142,9 +142,11 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 ### Today view
 
-- Shows what is due and overdue, grouped by room, plus what others have already done today.
-- One tap logs a task. A second action, "checked, not needed", records the check and moves the due date on by the schedule's recheck delay.
-- Bulk actions, such as watering everything in a room.
+- The home page. Shows what is due and overdue on active plants, grouped by room and then by plant, plus the care already done today and by whom (D34).
+- One tap logs a task. A second action, "checked, not needed", records the check and moves the due date on by the schedule's recheck delay. Snoozing stays on the plant's page.
+- Bulk actions: a task due on two or more plants in a room is logged on all of them with one tap, such as "Water all 3". It logs only the plants the page listed whose task is still due, so two people working from the same list don't water a plant twice, and one Undo takes the lot back.
+- The person who logged care today can remove it from the list, as from the plant's history (D32).
+- When nothing is due, it says what falls due next.
 
 ### Plants
 
