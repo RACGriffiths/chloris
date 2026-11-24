@@ -1,8 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getConnection } from '../db';
-import { user } from '../db/schema';
+import { membership, user } from '../db/schema';
 import { can } from '../permissions';
 import { addMember, insertUser, useTestDatabase } from '../testing';
 import { createHome, listHomesForUser } from './homes';
@@ -216,6 +216,13 @@ describe('acceptInvite', () => {
 	});
 
 	it('lets a member of another home join, keeping their first home first', () => {
+		// Made a minute ago: memberships made in the same millisecond would be ordered by their
+		// random ids instead.
+		getConnection()
+			.db.update(membership)
+			.set({ createdAt: new Date(Date.now() - 60_000) })
+			.where(and(eq(membership.homeId, bobHome), eq(membership.userId, bob)))
+			.run();
 		const { token } = createInvite(aliceHome, alice, { role: 'carer' });
 
 		expect(acceptInvite(token, bob).ok).toBe(true);
