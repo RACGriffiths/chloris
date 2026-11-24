@@ -2,12 +2,13 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { ZodError } from 'zod';
 import { SIGN_IN_LINK_MINUTES } from './auth/index';
-import { createCommandLineSignInLink } from './auth/sign-in-link';
+import { createCommandLineSignInLink, type CommandLineLink } from './auth/sign-in-link';
 import { BackupError, makeBackup } from './backup/backup';
 import { checkIntegrity, type MissingPhoto } from './backup/check';
 import { describeServerEntry } from '../audit';
 import { describeUserAgent } from '../devices';
 import { ConfigError, parseConfig, type Config, type Env } from './config';
+import { listHomesForUser } from './data/homes';
 import { listServerEvents, recordServerEvent } from './data/server-log';
 import { closeDatabase, getConnection, initDatabase, openExistingDatabase } from './db';
 
@@ -167,10 +168,29 @@ async function signInLink(
 			`  ${link.url}`,
 			'',
 			`It works once, within ${SIGN_IN_LINK_MINUTES} minutes. Open it on the device that`,
-			'should be signed in, and keep it private: anyone with it can sign in as this account.'
+			'should be signed in, and keep it private: anyone with it can sign in as this account.',
+			...madeFromInvite(link)
 		].join('\n')
 	);
 	return 0;
+}
+
+/**
+ * A warning about an account whose address was never proven but which is already in a home. Only
+ * an invite link makes one (D28): an account from this tool joins a home only once signed in,
+ * which proves its address. Whoever had the invite may have typed someone else's address. Using
+ * the link ends the account's sessions and removes its passkeys (D50), but it stays in its homes.
+ */
+function madeFromInvite(link: CommandLineLink): string[] {
+	if (link.created || link.confirmed) return [];
+	const homes = listHomesForUser(link.userId).length;
+	if (homes === 0) return [];
+	return [
+		'',
+		`Its address isn't confirmed: it was made from an invite link, and it's in ${count(homes, 'home')}.`,
+		'Check that the person this link is for made it. If someone else did, using the link ends',
+		'their sessions and removes their passkeys, but the account stays in the homes they joined.'
+	];
 }
 
 async function backup(

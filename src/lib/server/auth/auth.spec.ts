@@ -51,7 +51,12 @@ describe('command-line sign-in link', () => {
 	it('creates the account, which may create a home', async () => {
 		const link = await commandLineLink('  Owner@Example.com ');
 
-		expect(link).toMatchObject({ email: 'owner@example.com', created: true, canCreateHome: true });
+		expect(link).toMatchObject({
+			email: 'owner@example.com',
+			created: true,
+			confirmed: false,
+			canCreateHome: true
+		});
 		expect(link.url).toMatch(/^http:\/\/localhost:5173\/sign-in\/link\?token=\w{32}$/);
 		expect(accountExists('owner@example.com')).toBe(true);
 	});
@@ -64,6 +69,12 @@ describe('command-line sign-in link', () => {
 		expect(result.session.expiresAt.getTime() - Date.now()).toBeGreaterThan(29 * 24 * 3600_000);
 
 		await expect(useLink(link.url)).rejects.toThrow();
+		// Using it proved the address, which the next link says.
+		expect(await commandLineLink('owner@example.com')).toMatchObject({
+			userId: result.user.id,
+			created: false,
+			confirmed: true
+		});
 	});
 
 	it(`stops working after ${SIGN_IN_LINK_MINUTES} minutes`, async () => {

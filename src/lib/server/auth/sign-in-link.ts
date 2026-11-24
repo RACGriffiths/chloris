@@ -13,8 +13,15 @@ export interface CommandLineLinkInput {
 export interface CommandLineLink {
 	email: string;
 	url: string;
+	/** The account the link signs in to. */
+	userId: string;
 	/** Whether the account was created just now. */
 	created: boolean;
+	/**
+	 * Whether the account's address was proven before this link: someone has signed in to it with
+	 * a sign-in link. An account made from an invite link starts unproven (D28, D50).
+	 */
+	confirmed: boolean;
 	/** Whether the account may create a home (D26). */
 	canCreateHome: boolean;
 }
@@ -46,8 +53,9 @@ export async function createCommandLineSignInLink(
 	let canCreateHome = Boolean(
 		(existing?.user as { canCreateHome?: boolean } | undefined)?.canCreateHome
 	);
+	let userId = existing?.user.id;
 	if (!existing) {
-		await internalAdapter.createUser(
+		const created = await internalAdapter.createUser(
 			{
 				email,
 				name: input.name?.trim() || email.split('@')[0],
@@ -57,6 +65,7 @@ export async function createCommandLineSignInLink(
 			},
 			{ method: 'command-line' }
 		);
+		userId = created.id;
 		canCreateHome = true;
 	} else if (input.allowHomeCreation && !canCreateHome) {
 		await internalAdapter.updateUser(existing.user.id, { canCreateHome: true });
@@ -64,6 +73,13 @@ export async function createCommandLineSignInLink(
 	}
 
 	await auth.api.signInMagicLink({ body: { email }, headers: new Headers() });
-	if (!url) throw new Error('BetterAuth did not produce a sign-in link');
-	return { email, url, created: !existing, canCreateHome };
+	if (!url || !userId) throw new Error('BetterAuth did not produce a sign-in link');
+	return {
+		email,
+		url,
+		userId,
+		created: !existing,
+		confirmed: existing?.user.emailVerified ?? false,
+		canCreateHome
+	};
 }
