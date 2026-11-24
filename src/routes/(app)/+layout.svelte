@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CalendarCheckIcon from '@lucide/svelte/icons/calendar-check';
 	import CircleUserIcon from '@lucide/svelte/icons/circle-user';
 	import LeafIcon from '@lucide/svelte/icons/leaf';
 	import { page } from '$app/state';
@@ -16,7 +17,8 @@
 			? 'page'
 			: undefined;
 
-	const navLink = 'aria-[current=page]:bg-muted';
+	// On the narrowest phones, the links drop their icons so all three fit beside the name.
+	const navLink = 'aria-[current=page]:bg-muted max-[25rem]:[&_svg]:hidden';
 </script>
 
 <div class="min-h-dvh">
@@ -24,6 +26,16 @@
 		<div class="mx-auto flex h-14 max-w-2xl items-center justify-between gap-2 px-4">
 			<Brand />
 			<nav aria-label="Main" class="flex items-center gap-1">
+				<Button
+					href={resolve('')}
+					variant="ghost"
+					size="sm"
+					class={navLink}
+					aria-current={page.url.pathname === '/' ? 'page' : undefined}
+				>
+					<CalendarCheckIcon />
+					Today
+				</Button>
 				<Button
 					href={resolve('plants')}
 					variant="ghost"

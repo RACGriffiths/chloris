@@ -32,6 +32,18 @@ export function formatNearDate(value: string, today: string): string {
 		.replace(',', '');
 }
 
+/** A calendar date written out in full, without its year: `Tuesday 24 November`. */
+export function formatLongDate(value: string): string {
+	return new Intl.DateTimeFormat('en-GB', {
+		timeZone: 'UTC',
+		weekday: 'long',
+		day: 'numeric',
+		month: 'long'
+	})
+		.format(utcMidnight(value))
+		.replace(',', '');
+}
+
 /** The calendar date `days` after `date` (before it, if negative). */
 export function addDays(date: string, days: number): string {
 	return new Date(utcMidnight(date) + days * DAY_MS).toISOString().slice(0, 10);

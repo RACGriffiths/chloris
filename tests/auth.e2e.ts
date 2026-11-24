@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { addVirtualAuthenticator, createHome, newEmail, signInLink, useLink } from './helpers';
+import {
+	addVirtualAuthenticator,
+	createHome,
+	expectHome,
+	newEmail,
+	signInLink,
+	useLink
+} from './helpers';
 
 test('the first owner signs in with a link, adds a passkey, then signs in with it', async ({
 	page
@@ -19,7 +26,7 @@ test('the first owner signs in with a link, adds a passkey, then signs in with i
 	// Signing out lands on the sign-in page, where the browser offers the passkey in the email
 	// field's autofill. Chrome's test authenticator accepts at once, so it signs straight back in.
 	await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Test flat');
+	await expectHome(page, 'Test flat');
 
 	// In a browser without passkey autofill, the button signs in.
 	await page.context().clearCookies();
@@ -28,7 +35,7 @@ test('the first owner signs in with a link, adds a passkey, then signs in with i
 	});
 	await page.goto('/sign-in');
 	await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Test flat');
+	await expectHome(page, 'Test flat');
 });
 
 test('a sign-in link works only once', async ({ page, browser }) => {

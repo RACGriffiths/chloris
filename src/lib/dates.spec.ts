@@ -5,6 +5,7 @@ import {
 	daysBetween,
 	formatCalendarDate,
 	formatMoment,
+	formatLongDate,
 	formatNearDate,
 	localDateTime,
 	zonedTime
@@ -21,6 +22,12 @@ describe('formatNearDate', () => {
 	it('gives the weekday in the same year, and the year otherwise', () => {
 		expect(formatNearDate('2026-11-27', '2026-11-24')).toBe('Fri 27 Nov');
 		expect(formatNearDate('2027-01-02', '2026-12-30')).toBe('2 Jan 2027');
+	});
+});
+
+describe('formatLongDate', () => {
+	it('gives the weekday, day and month', () => {
+		expect(formatLongDate('2026-11-24')).toBe('Tuesday 24 November');
 	});
 });
 

@@ -1,18 +1,20 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createInvite, idFromUrl, joinWithNewAccount, newOwner, newPhone, post } from './helpers';
+import {
+	addSchedule,
+	createInvite,
+	idFromUrl,
+	joinWithNewAccount,
+	logOtherCare,
+	londonDate,
+	newOwner,
+	newPhone,
+	post
+} from './helpers';
 
 /**
  * The care log and schedules on a plant's page (D31, D32). Homes made by `newOwner()` are in
  * Europe/London, so dates are worked out there.
  */
-
-/** A calendar date in London, `days` from today. */
-function londonDate(days = 0): string {
-	const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
-	const date = new Date(`${today}T00:00:00Z`);
-	date.setUTCDate(date.getUTCDate() + days);
-	return date.toISOString().slice(0, 10);
-}
 
 /** Adds a plant to a home with no rooms yet, naming its first room, and returns its id. */
 async function addFirstPlant(page: Page, nickname: string): Promise<string> {
@@ -24,29 +26,6 @@ async function addFirstPlant(page: Page, nickname: string): Promise<string> {
 	await page.getByRole('button', { name: 'Add plant' }).click();
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(nickname);
 	return idFromUrl(page, /^\/plants\/([\w-]+)$/);
-}
-
-/** From a plant's page: adds a schedule for one task and comes back. */
-async function addSchedule(page: Page, task: string, days: number) {
-	await page.getByRole('link', { name: 'Add a schedule' }).click();
-	await expect(page.getByRole('heading', { name: 'Add a schedule' })).toBeVisible();
-	// The radio button itself is hidden behind its tile, so tap the tile, as a person would.
-	await page.locator('label').filter({ hasText: task }).click();
-	await expect(page.getByRole('radio', { name: task })).toBeChecked();
-	await page.getByLabel('How often').fill(String(days));
-	await page.getByRole('button', { name: 'Add schedule' }).click();
-	await expect(page.getByRole('heading', { name: 'Care', exact: true })).toBeVisible();
-}
-
-/** From a plant's page: logs care with the Log other care form. */
-async function logOtherCare(page: Page, care: { type?: string; doneAt?: string; note?: string }) {
-	const form = page.locator('details').filter({ hasText: 'Log other care' });
-	// An open <details> has an empty `open` attribute; a closed one has none.
-	if ((await form.getAttribute('open')) === null) await page.getByText('Log other care').click();
-	if (care.type) await page.getByLabel('What you did').selectOption({ label: care.type });
-	await page.getByLabel('When').fill(care.doneAt ?? '');
-	await page.getByLabel('Note').fill(care.note ?? '');
-	await page.getByRole('button', { name: 'Log care' }).click();
 }
 
 const schedule = (page: Page, task: string) =>
