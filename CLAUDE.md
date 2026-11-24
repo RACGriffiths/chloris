@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, and rooms and plants are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, and the care log and schedules are in.
 
 ## Read first
 
@@ -49,10 +49,11 @@ src/
     photos/       upload pipeline, storage, serving (v1)
     jobs/         scheduler, digests, photo clean-up (v1)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
-  lib/rooms.ts, lib/plants.ts, lib/dates.ts
-                      shared by server and pages: room and plant choices, their names on screen,
-                      calendar dates
-  lib/components/     the app's own components (plant form, room fields, plant tile)
+  lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts
+                      shared by server and pages: room, plant and care choices, their names on
+                      screen, calendar dates and times in the home's time zone
+  lib/components/     the app's own components (plant form, room fields, plant tile, care schedule,
+                      log care form, schedule fields)
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
                       change package versions, so check package.json afterwards)
   routes/
@@ -101,6 +102,10 @@ Much SvelteKit material online describes version 2. In this project:
 - Data functions take raw input and parse it themselves. Where a schema transforms values (enums, `''` to `null`), `parsed.data` has a different type from the input, so pass the raw values instead.
 - `resolve()` takes a query string too: ``resolve(`plants?room=${id}`)``. The `svelte/no-navigation-without-resolve` rule accepts any expression typed as `resolve()`'s result, so a helper that builds links should return `resolve(...)`.
 - ESLint's type-aware rules can't see types exported from a `.svelte` file's `<script module>` (they become `error` types), even though svelte-check can. Put shared types in a `.ts` file.
+- Times people see and type are in the home's time zone, not the server's: use `calendarDate()`, `zonedTime()` and `formatMoment()` from `#lib/dates.js`, and format on the server in `load`, so the page doesn't change when it hydrates. Due dates are calendar dates (D31).
+- `SubmitFunction`, the type of a `use:enhance` callback, comes from `$app/forms` in SvelteKit 3, not `@sveltejs/kit`. shadcn-svelte's `buttonVariants` is exported from a `.svelte` file, so ESLint rejects it (see above): to style a `<summary>` as a button, write the classes out.
+- A `<details>` element opens without JavaScript, so it holds the optional parts of the plant page (Snooze, Log other care, the confirmation for removing care). In Playwright, click its `summary`; an open one has `open=""`, which is falsy, so compare `getAttribute('open')` with `null`.
+- A `min` or `max` on a date field stops the browser from sending a value outside it, so an end-to-end test of the server's own check has to post the form directly (`post()` in `tests/helpers.ts`).
 - In Playwright, `getByLabel` and `getByRole({ name })` match substrings: "Kitchen" also finds "Edit Kitchen", and "Name" finds "Room name". Use `exact: true`. After a click that navigates, wait for something on the next page before filling a field or reading the URL, or the step acts on the old page.
 
 ## Commands

@@ -12,7 +12,7 @@ Chloris keeps each household's data away from every other household on the same 
 2. **Authorisation on the server.** Every load function, form action and API route that calls it checks the permission for that home first, with `requireHome()` or `requirePermission()` (both use `can()`).
 3. **Isolation test.** A test proves that, given another home's id, the function reads nothing and changes nothing.
 
-Work through the steps in order. The real code to copy from is `src/lib/server/data/rooms.ts` and `plants.ts` (creating, listing, getting and changing rows, and checking a plant's room is in the same home), their tests in `rooms.spec.ts` and `plants.spec.ts`, and the routes under `src/routes/(app)/plants/` and `src/routes/(app)/rooms/`. `invites.ts` and the members page show a link that works once.
+Work through the steps in order. The real code to copy from is `src/lib/server/data/rooms.ts` and `plants.ts` (creating, listing, getting and changing rows, and checking a plant's room is in the same home), their tests in `rooms.spec.ts` and `plants.spec.ts`, and the routes under `src/routes/(app)/plants/` and `src/routes/(app)/rooms/`. `invites.ts` and the members page show a link that works once. `care-events.ts` and `schedules.ts` show functions that read the home's time zone and take `now`, and a value worked out from the log each time rather than stored (rule 4).
 
 Before starting, read the table's row in docs/spec.md (Data model) and the feature's section, so the fields and behaviour match the spec.
 
