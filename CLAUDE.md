@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles and invite links are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, and rooms and plants are in.
 
 ## Read first
 
@@ -49,11 +49,16 @@ src/
     photos/       upload pipeline, storage, serving (v1)
     jobs/         scheduler, digests, photo clean-up (v1)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
+  lib/rooms.ts, lib/plants.ts, lib/dates.ts
+                      shared by server and pages: room and plant choices, their names on screen,
+                      calendar dates
+  lib/components/     the app's own components (plant form, room fields, plant tile)
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
                       change package versions, so check package.json afterwards)
   routes/
     (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
-    (app)/        the signed-in app: the home page, members and invites, the account page
+    (app)/        the signed-in app: the home page, plants, rooms, members and invites, the account
+                  page
 tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
 ```
 
@@ -64,8 +69,8 @@ Folders in brackets are SvelteKit route groups: they share a layout but don't ap
 - There is no open sign-up (D26). The first account comes from `node build/cli sign-in-link <email>`; later ones from invites. Only accounts the command-line tool made or allowed may create a home.
 - Invite links (D28) are Chloris's own, in `#lib/server/data/invites.js`; only a hash of each token is stored. Someone without an account joins through `getAuth().api.joinWithInvite()` (`src/lib/server/auth/invites.ts`), a server-only BetterAuth endpoint that creates the account and membership in one transaction and signs it in. BetterAuth's `invitation` table is unused.
 - The browser reaches only BetterAuth's passkey endpoints (D27, `src/lib/server/auth/http.ts`). Pages call the rest of BetterAuth on the server with `getAuth().api.*` and `authHeaders(event)`; homes and memberships change only through the data layer.
-- `locals.user` is the signed-in user or `null`. Use `requireUser(locals)` for pages that need one, then `requirePermission(user, homeId, permission)`: it answers 404 to outsiders and 403 to members without the permission.
-- Read form fields with `textField(form, name)` from `#lib/server/forms.js`, and validate them with the Zod schema the data layer exports.
+- `locals.user` is the signed-in user or `null`. In the signed-in app, start every load function and form action with `requireHome(locals, permission)` from `#lib/server/permissions/guard.js`: it returns the user and their home, and answers 404 to outsiders and 403 to members without the permission. Elsewhere, `requireUser(locals)` then `requirePermission(user, homeId, permission)` do the same in two steps.
+- Read form fields with `textFields(form, schema.keyof().options)` from `#lib/server/forms.js`, check them with the data layer's Zod schema (`safeParse`, then `fieldErrors()` for the messages), and pass the same raw values to the data function, which parses them itself.
 
 Unit tests sit next to the code as `*.spec.ts`. ESLint stops `src/routes/` from importing the database (rule 1).
 
@@ -91,6 +96,12 @@ Much SvelteKit material online describes version 2. In this project:
 - In end-to-end tests, wait for the next page after `useLink()` (such as the Welcome heading) before navigating, or the sign-in POST is aborted. Chrome's virtual authenticator accepts passkey autofill at once, so to test the sign-in button, stub `PublicKeyCredential.isConditionalMediationAvailable` to return false (see `tests/auth.e2e.ts`).
 - ESLint's `no-unsafe-assignment` rejects `expect.any(String)`. Use `toMatchObject` and leave that field out.
 - Work built in a worktree can add dependencies. After merging it, run `npm install` in the main checkout, or svelte-check reports missing modules such as `better-auth/api`.
+- Svelte removes the `value` and `checked` attributes the server rendered once the page hydrates, so a form reset (what `use:enhance`'s `update()` does after a successful action) empties fields instead of returning them to their first values. Where a radio button should come back checked after a reset, use `defaultChecked`; the server still renders it as `checked` (see `room-fields.svelte`).
+- SvelteKit refuses a `default` action on a page that also has named actions, with a 500 (`action_default_with_named`). Name them all, and post to `?/name`.
+- Data functions take raw input and parse it themselves. Where a schema transforms values (enums, `''` to `null`), `parsed.data` has a different type from the input, so pass the raw values instead.
+- `resolve()` takes a query string too: ``resolve(`plants?room=${id}`)``. The `svelte/no-navigation-without-resolve` rule accepts any expression typed as `resolve()`'s result, so a helper that builds links should return `resolve(...)`.
+- ESLint's type-aware rules can't see types exported from a `.svelte` file's `<script module>` (they become `error` types), even though svelte-check can. Put shared types in a `.ts` file.
+- In Playwright, `getByLabel` and `getByRole({ name })` match substrings: "Kitchen" also finds "Edit Kitchen", and "Name" finds "Room name". Use `exact: true`. After a click that navigates, wait for something on the next page before filling a field or reading the URL, or the step acts on the old page.
 
 ## Commands
 
@@ -128,7 +139,7 @@ It also registers a hook, [.claude/hooks/protect-migrations.mjs](.claude/hooks/p
 
 The project's own skills are in `.claude/skills/`. Claude Code uses one when the work calls for it, or start it by name with a slash:
 
-- **data-access-function** ([SKILL.md](.claude/skills/data-access-function/SKILL.md)): adding or changing a function in the data-access layer, with home scoping, the `can()` check in each route that calls it, and the isolation test. Its examples are tested patterns, not a design for rooms and plants: the spec decides those.
+- **data-access-function** ([SKILL.md](.claude/skills/data-access-function/SKILL.md)): adding or changing a function in the data-access layer, with home scoping, the `can()` check in each route that calls it, and the isolation test. `rooms.ts` and `plants.ts` in `src/lib/server/data/` are the fullest real examples.
 
 Also worth having, but installed per person rather than here, so they don't clash with copies enabled account-wide: a TypeScript language server plugin (`typescript-lsp@claude-plugins-official`, which needs `npm install -g typescript-language-server typescript`) and `frontend-design@claude-plugins-official`, which is the one to use when designing screens.
 
