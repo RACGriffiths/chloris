@@ -80,6 +80,17 @@ Much SvelteKit material online describes version 2. In this project:
 - `invalidateAll` is now `refreshAll`, also as a `goto()` option.
 - Hook types such as `ServerInit` and `Handle` come from `@sveltejs/kit/hooks`.
 
+### Pitfalls found so far
+
+- `use:enhance`'s default `update()` resets the form, clearing server-rendered choices such as a selected radio button. Call `update({ reset: false })` where a choice should stay. Straight after `await update()`, read the action's data from the callback's `result.data`, not the `form` prop.
+- When one table is dropped and another added in the same change, `drizzle-kit generate` asks whether it was renamed, and hangs without a terminal. Split the change into two migrations.
+- BetterAuth's Drizzle adapter throws on a required column it doesn't know in its own tables: declare new ones in `additionalFields` (`src/lib/server/auth/index.ts`). Its organisation plugin won't start without the `invitation` table, so that table stays.
+- Pages with a token in the URL send `Referrer-Policy: strict-origin`, not `no-referrer`. With `no-referrer`, a form posted before JavaScript loads carries `Origin: null`, which SvelteKit refuses as cross-site.
+- Adding a passkey needs a session less than a day old (BetterAuth's fresh-session rule).
+- In end-to-end tests, wait for the next page after `useLink()` (such as the Welcome heading) before navigating, or the sign-in POST is aborted. Chrome's virtual authenticator accepts passkey autofill at once, so to test the sign-in button, stub `PublicKeyCredential.isConditionalMediationAvailable` to return false (see `tests/auth.e2e.ts`).
+- ESLint's `no-unsafe-assignment` rejects `expect.any(String)`. Use `toMatchObject` and leave that field out.
+- Work built in a worktree can add dependencies. After merging it, run `npm install` in the main checkout, or svelte-check reports missing modules such as `better-auth/api`.
+
 ## Commands
 
 First time: `npm install`, `cp .env.example .env` and set `BETTER_AUTH_SECRET`, and `npx playwright install chromium` for the end-to-end tests. To sign in locally, run `npm run build` and `npm run cli -- sign-in-link you@example.com`, then open the link with `npm run dev` running (the link uses `ORIGIN`).
