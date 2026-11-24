@@ -4,13 +4,16 @@ import sharp from 'sharp';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { addMember, insertUser, markPhotoDeleted, testJpeg, useTestDatabase } from '../testing';
+import { listCareEvents, logCareWithPhoto } from './care-events';
 import { createHome } from './homes';
 import {
 	addPhoto,
 	addPhotoWith,
 	deletePhoto,
 	getPhoto,
+	listPhotoFiles,
 	listPhotos,
+	purgeDeletedPhotos,
 	readPhoto,
 	takenAtFrom,
 	updatePhoto,
@@ -421,5 +424,86 @@ describe('deletePhoto', () => {
 			reason: 'not-found'
 		});
 		expect(listPhotos(aliceHome, fern)).toEqual([photo]);
+	});
+});
+
+describe('listPhotoFiles', () => {
+	it("lists the home's photos with their file keys, deleted ones too, never another home's", async () => {
+		const kept = await add(aliceHome, alice, fern, {}, jpeg, new Date(now.getTime() - 1000));
+		const gone = await add(aliceHome, alice, fern);
+		const bobs = await add(bobHome, bob, cactus);
+		markPhotoDeleted(gone.id, now);
+
+		const alices = listPhotoFiles(aliceHome);
+
+		expect(alices).toMatchObject([
+			{ id: kept.id, plantId: fern, deletedAt: null },
+			{ id: gone.id, plantId: fern, deletedAt: now }
+		]);
+		expect(listPhotoFiles(bobHome)).toMatchObject([{ id: bobs.id, plantId: cactus }]);
+		// The keys name the files on disk, in each home's own folder.
+		for (const photo of alices) {
+			expect(filesOnDisk()).toContain(path.join(aliceHome, `${photo.fileKey}-full.jpg`));
+		}
+	});
+});
+
+describe('purgeDeletedPhotos', () => {
+	const day = 24 * 60 * 60 * 1000;
+	const daysAgo = (days: number) => new Date(now.getTime() - days * day);
+
+	it('removes the files and rows of photos deleted before the grace period began', async () => {
+		const kept = await add(aliceHome, alice, fern, {}, jpeg, daysAgo(50));
+		const recent = await add(aliceHome, alice, fern, {}, jpeg, daysAgo(40));
+		const old = await add(aliceHome, alice, fern, {}, jpeg, daysAgo(40));
+		markPhotoDeleted(recent.id, daysAgo(29));
+		markPhotoDeleted(old.id, daysAgo(31));
+
+		expect(await purgeDeletedPhotos(aliceHome, daysAgo(30))).toEqual({ removed: 1, failed: [] });
+
+		expect(listPhotoFiles(aliceHome).map((photo) => photo.id)).toEqual([kept.id, recent.id]);
+		expect(filesOnDisk()).toHaveLength(6);
+		expect(listPhotos(aliceHome, fern)).toEqual([kept]);
+	});
+
+	it("never removes another home's photos, however long ago they were deleted", async () => {
+		const bobs = await add(bobHome, bob, cactus);
+		markPhotoDeleted(bobs.id, daysAgo(365));
+
+		expect(await purgeDeletedPhotos(aliceHome, now)).toEqual({ removed: 0, failed: [] });
+
+		expect(listPhotoFiles(bobHome).map((photo) => photo.id)).toEqual([bobs.id]);
+		expect(filesOnDisk()).toHaveLength(3);
+	});
+
+	it('finishes a photo whose files are already gone, and keeps the care logged with it', async () => {
+		const logged = await logCareWithPhoto(aliceHome, alice, fern, { type: 'repot' }, jpeg, now);
+		if (!logged.ok) throw new Error('Care refused');
+		expect(deletePhoto(aliceHome, fern, logged.photoId, asAlice, daysAgo(40)).ok).toBe(true);
+		for (const file of filesOnDisk()) fs.rmSync(path.join(folders.photosDir, file));
+
+		expect(await purgeDeletedPhotos(aliceHome, daysAgo(30))).toEqual({ removed: 1, failed: [] });
+
+		expect(listPhotoFiles(aliceHome)).toEqual([]);
+		expect(listCareEvents(aliceHome, fern).events).toMatchObject([
+			{ id: logged.event.id, type: 'repot', photoId: null }
+		]);
+	});
+
+	it("keeps the row of a photo whose files can't be removed, to try again", async () => {
+		const photo = await add(aliceHome, alice, fern);
+		markPhotoDeleted(photo.id, daysAgo(31));
+		// Root can remove files from any folder, so this only means something for other users.
+		if (process.getuid?.() === 0) return;
+		const folder = path.join(folders.photosDir, aliceHome);
+		fs.chmodSync(folder, 0o555);
+		try {
+			const result = await purgeDeletedPhotos(aliceHome, daysAgo(30));
+
+			expect(result).toMatchObject({ removed: 0, failed: [{ photoId: photo.id }] });
+			expect(listPhotoFiles(aliceHome).map((row) => row.id)).toEqual([photo.id]);
+		} finally {
+			fs.chmodSync(folder, 0o755);
+		}
 	});
 });

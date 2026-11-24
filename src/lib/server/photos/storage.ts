@@ -49,15 +49,64 @@ function root(): string {
 /** Ids and keys come from the database, never from a request; this is a second guard. */
 const SAFE_NAME = /^[\w-]+$/;
 
+/** The name of one of a photo's files, in its home's folder. */
+export function photoFileName(fileKey: string, size: PhotoSize): string {
+	return `${fileKey}-${size}.jpg`;
+}
+
 /** The path of one of a photo's files. */
 export function photoPath(homeId: string, fileKey: string, size: PhotoSize): string {
 	if (!SAFE_NAME.test(homeId) || !SAFE_NAME.test(fileKey)) {
 		throw new Error('Unexpected characters in a photo file name');
 	}
-	return path.join(root(), homeId, `${fileKey}-${size}.jpg`);
+	return path.join(root(), homeId, photoFileName(fileKey, size));
 }
 
-const SIZES = Object.keys(PHOTO_SIZES) as PhotoSize[];
+export const SIZES = Object.keys(PHOTO_SIZES) as PhotoSize[];
+
+const PHOTO_FILE_NAME = new RegExp(`^([\\w-]+)-(${SIZES.join('|')})\\.jpg$`);
+
+/** A file in a home's folder of the photo folder. */
+export interface StoredFile {
+	/** The folder it's in, named for the home it belongs to. */
+	homeId: string;
+	name: string;
+	/** Its size in bytes. */
+	bytes: number;
+	/** The photo it would be a file of, going by its name; `null` for any other name. */
+	photo: { fileKey: string; size: PhotoSize } | null;
+}
+
+/**
+ * The files in the photo folder `dir` that Chloris would have written: those in a folder named
+ * like a home's id, which is where it writes them (D35). Anything else is left out, such as
+ * `lost+found` at the top of a mounted drive, folders inside a home's folder, and links. Sorted by
+ * home, then name. Throws if `dir` can't be read.
+ */
+export async function listStoredFiles(dir: string): Promise<StoredFile[]> {
+	const files: StoredFile[] = [];
+	const homes = (await fsp.readdir(dir, { withFileTypes: true }))
+		.filter((entry) => entry.isDirectory() && SAFE_NAME.test(entry.name))
+		.map((entry) => entry.name)
+		.sort();
+	for (const homeId of homes) {
+		const entries = await fsp.readdir(path.join(dir, homeId), { withFileTypes: true });
+		for (const name of entries
+			.filter((entry) => entry.isFile())
+			.map((entry) => entry.name)
+			.sort()) {
+			const { size: bytes } = await fsp.stat(path.join(dir, homeId, name));
+			const match = PHOTO_FILE_NAME.exec(name);
+			files.push({
+				homeId,
+				name,
+				bytes,
+				photo: match ? { fileKey: match[1], size: match[2] as PhotoSize } : null
+			});
+		}
+	}
+	return files;
+}
 
 /**
  * Writes a new photo's files. Each is created exclusively, so an existing file is never
@@ -99,6 +148,14 @@ async function discardFiles(homeId: string, fileKey: string, sizes: PhotoSize[])
  * after the photo is deleted has passed.
  */
 export function discardUnrecordedPhoto(homeId: string, fileKey: string): Promise<void> {
+	return discardFiles(homeId, fileKey, SIZES);
+}
+
+/**
+ * Removes the files of a photo deleted longer ago than the grace period (D54). A file that's
+ * already gone is no error.
+ */
+export function removeDeletedPhotoFiles(homeId: string, fileKey: string): Promise<void> {
 	return discardFiles(homeId, fileKey, SIZES);
 }
 

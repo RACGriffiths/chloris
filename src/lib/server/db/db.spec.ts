@@ -3,7 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { closeDatabase, getConnection, initDatabase, openDatabase } from './index';
+import {
+	backupDatabase,
+	closeDatabase,
+	getConnection,
+	initDatabase,
+	openDatabase,
+	openExistingDatabase
+} from './index';
 
 interface FixtureMigration {
 	tag: string;
@@ -146,5 +153,53 @@ describe('initDatabase', () => {
 		expect(after.prepare('SELECT id, room_id FROM plant').all()).toEqual([{ id: 1, room_id: 1 }]);
 		expect(after.prepare('SELECT light FROM room').get()).toEqual({ light: 'medium' });
 		expect(after.pragma('foreign_keys', { simple: true })).toBe(1);
+	});
+});
+
+describe('openExistingDatabase', () => {
+	it('opens the database as it is, never migrating it, even with migrations waiting', async () => {
+		writeMigrations(migrationsFolder, [createRooms]);
+		await initDatabase(dataDir, migrationsFolder);
+		closeDatabase();
+		// A newer build of the command-line tool, beside a server that hasn't restarted yet.
+		writeMigrations(migrationsFolder, [createRooms, rebuildRooms]);
+
+		openExistingDatabase(dataDir);
+
+		const columns = getConnection()
+			.sqlite.prepare('SELECT name FROM pragma_table_info(?)')
+			.all('room');
+		expect(columns).toEqual([{ name: 'id' }, { name: 'name' }]);
+		expect(backups()).toEqual([]);
+	});
+
+	it('refuses a folder with no database, rather than making one', () => {
+		expect(() => openExistingDatabase(dataDir)).toThrow(/there is no database at/);
+		expect(fs.existsSync(dataDir)).toBe(false);
+	});
+
+	it("refuses a file that isn't a Chloris database", () => {
+		fs.mkdirSync(dataDir);
+		new Database(path.join(dataDir, 'chloris.db')).close();
+		expect(() => openExistingDatabase(dataDir)).toThrow(/isn't a Chloris database/);
+
+		fs.writeFileSync(path.join(dataDir, 'chloris.db'), 'Not a database at all, just some text.');
+		expect(() => openExistingDatabase(dataDir)).toThrow(/isn't a Chloris database/);
+	});
+});
+
+describe('backupDatabase', () => {
+	it('copies the database while it stays open, and checks the copy', async () => {
+		writeMigrations(migrationsFolder, [createRooms]);
+		await initDatabase(dataDir, migrationsFolder);
+		getConnection().sqlite.prepare("INSERT INTO room (name) VALUES ('Kitchen')").run();
+		const file = path.join(path.dirname(dataDir), 'copy.db');
+
+		await backupDatabase(file);
+
+		getConnection().sqlite.prepare("INSERT INTO room (name) VALUES ('Study')").run();
+		const copy = new Database(file, { readonly: true });
+		expect(copy.prepare('SELECT name FROM room').all()).toEqual([{ name: 'Kitchen' }]);
+		copy.close();
 	});
 });

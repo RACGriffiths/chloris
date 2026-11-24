@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), and the daily email digest with its scheduler are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), the daily email digest with its scheduler, and the backup command, integrity check and removal of deleted photos are in.
 
 ## Read first
 
@@ -39,18 +39,20 @@ src/
   cli.ts          entry point of the command-line tool, built to build/cli
   lib/server/
     config.ts     config validation (Zod), free of SvelteKit imports
-    db/           Drizzle schema, client, migrations (applied at start-up after a backup)
+    db/           Drizzle schema, client, migrations (applied at start-up after a backup); the
+                  command-line tool opens it with openExistingDatabase(), which never migrates
     data/         home-scoped queries, the only place that touches domain tables (add to it with
                   the data-access-function skill)
     auth/         BetterAuth setup, sign-in links, which auth endpoints the browser may reach
     permissions/  roles, can(), requirePermission()
     notify/       mailer, and the daily digest email (push in v2)
-    cli.ts        the command-line tool's commands
+    cli.ts        the command-line tool's commands: sign-in-link, backup, check
+    backup/       the backup command and the integrity check (D52, D53)
     testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
     photos/       checking and resizing uploads with sharp, write-once storage, the missing-photo
                   placeholder (the data layer's photos.ts is what calls them)
-    jobs/         croner scheduler and the daily digest job, run only when email is on (photo
-                  clean-up comes with the backup command, D51)
+    jobs/         croner scheduler: the daily digest job, run only when email is on, and the
+                  hourly job removing deleted photos after the grace period (D54)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
   lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts,
   lib/notifications.ts
@@ -133,7 +135,9 @@ Much SvelteKit material online describes version 2. In this project:
 - SvelteKit types a page's `form` as every action's result merged, each key optional, so `'values' in form` doesn't narrow it. Read `form?.values ?? data.values`, as the other pages do.
 - Zod's `.superRefine()` keeps an object schema an object, so `.keyof()` still lists its fields for `textFields()`. `.transform()` on the whole object doesn't: check fields across each other with `superRefine` and turn the values into what's stored in the data function.
 - When an unconfirmed account uses a sign-in link, BetterAuth confirms the address and ends all its other sessions (`revokeUnprovenAccountAccess`). The Notifications page warns of this before sending one (D50).
-- The digest job and other background work act for no one signed in, so they can't use `requireHome()`. They call `can({ id: userId }, homeId, permission, now)` for each person they act for, and only `listHomeIds()` in `homes.ts` reads across homes.
+- The digest job and other background work act for no one signed in, so they can't use `requireHome()`. They call `can({ id: userId }, homeId, permission, now)` for each person they act for, and only `listHomeIds()` in `homes.ts` reads across homes. Work that acts for no person at all (removing deleted photos, the backup and the check) still goes home by home through data functions that take a `homeId`, whose doc comments say why there's no `can()`.
+- A SQLite database in WAL mode copied without its `-wal` file can be missing everything since the last checkpoint. Playwright stops the test servers without closing the database, so `test-results/e2e-data/chloris.db` on its own may have no tables at all: copy the `-wal` file with it, or use `npm run cli -- backup`.
+- Rows created at the same `now` are ordered by their random ids, so a test that checks the order of a list needs them created at different times.
 - The end-to-end tests run two copies of the app: the usual one with email off, and one with email on (`emailOrigin` in `tests/server-env.ts`) whose mail `readMail()` reads back. In a test for the second, `test.use({ baseURL: emailOrigin })` doesn't reach a page from `newPhone()`: pass `baseURL` to it, and `emailServerEnv` to `newOwner()` and `signInLink()`.
 - A form field hidden with CSS is still sent with the form, so `required` on it stops the browser submitting while it's hidden. The Notifications page hides fields with `group-has-[...]:hidden` and leaves the checking to the server.
 
@@ -147,6 +151,8 @@ First time: `npm install`, `cp .env.example .env` and set `BETTER_AUTH_SECRET`, 
 | `npm run build` | Production build into `build/`, with the command-line tool in `build/cli` |
 | `npm start` | Runs the production build (`node build`), reading `.env` if present |
 | `npm run cli -- sign-in-link <email>` | Prints a one-time sign-in link, creating the account if needed (after `npm run build`) |
+| `npm run cli -- backup <folder>` | Backs up the database, then the photos, into a new folder in `<folder>`, which must exist; `--keep <n>` removes the oldest |
+| `npm run cli -- check` | Checks the database, and its photos against the photo folder; changes nothing |
 | `npm run check` | Type-check with svelte-check |
 | `npm run lint` | Prettier check, then ESLint |
 | `npm run format` | Format everything with Prettier |

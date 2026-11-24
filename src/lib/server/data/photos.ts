@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import type { CareType, Task } from '../../care';
 import { localDateTime, zonedTime } from '../../dates';
@@ -8,7 +8,12 @@ import { MAX_CAPTION_LENGTH, type PhotoSize } from '../../photos';
 import { getConnection, type Db } from '../db';
 import { careEvent, home, photo, plant, user } from '../db/schema';
 import { processPhoto, type PhotoProblem } from '../photos/process';
-import { discardUnrecordedPhoto, readPhotoFile, writePhotoFiles } from '../photos/storage';
+import {
+	discardUnrecordedPhoto,
+	readPhotoFile,
+	removeDeletedPhotoFiles,
+	writePhotoFiles
+} from '../photos/storage';
 import { optionalText, stillToCome } from './fields';
 
 /**
@@ -19,9 +24,10 @@ import { optionalText, stillToCome } from './fields';
  *
  * A photo is a row here and a file per size in the photo folder (`#lib/server/photos/storage`).
  * The files are written first and the row last, so a row always has its files; files left behind
- * by a crash have no row, and the integrity check will list them. Deleting a photo only marks
- * its row: its files stay through the grace period (CLAUDE.md rule 5). Deleted photos are left
- * out of every read.
+ * by a crash have no row, and the integrity check lists them. Deleting a photo only marks its
+ * row: its files stay through the grace period (CLAUDE.md rule 5), then a background job removes
+ * them, and then the row (D54). Deleted photos are left out of every read except the two for
+ * that housekeeping, `listPhotoFiles` and `purgeDeletedPhotos`.
  */
 
 export interface Photo {
@@ -402,4 +408,82 @@ export async function readPhoto(
 	if (!found) return notFound;
 	const bytes = await readPhotoFile(homeId, found.fileKey, size);
 	return bytes ? { ok: true, bytes } : { ok: false, reason: 'missing' };
+}
+
+/** A photo's files as the backup and the integrity check see them, deleted or not. */
+export interface PhotoFiles {
+	id: string;
+	plantId: string;
+	/** Names its files: `#lib/server/photos/storage`'s `photoFileName()`. */
+	fileKey: string;
+	/** When it was deleted; its files are kept until the grace period after it is over. */
+	deletedAt: Date | null;
+}
+
+/**
+ * Every photo in `homeId`, deleted ones included, with the key that names its files, in the order
+ * they were added: for the backup and the integrity check, which compare them with the files in
+ * the photo folder (D52, D53). They are run from the command line by whoever runs the server,
+ * and read every home in turn (`listHomeIds()`), so there's no one to check `can()` for. Pages
+ * never call this.
+ */
+export function listPhotoFiles(homeId: string): PhotoFiles[] {
+	return getConnection()
+		.db.select({
+			id: photo.id,
+			plantId: photo.plantId,
+			fileKey: photo.fileKey,
+			deletedAt: photo.deletedAt
+		})
+		.from(photo)
+		.where(eq(photo.homeId, homeId))
+		.orderBy(asc(photo.createdAt), asc(photo.id))
+		.all();
+}
+
+/** What `purgeDeletedPhotos` did. */
+export interface PurgeResult {
+	/** How many photos it removed, files and rows. */
+	removed: number;
+	/** Photos whose files couldn't be removed, and why. Their rows stay, to try again. */
+	failed: { photoId: string; error: unknown }[];
+}
+
+/**
+ * Removes the photos in `homeId` that were deleted before `deletedBefore`, the start of the grace
+ * period: each one's files first, then its row (D54). Removing the files first means that if it
+ * stops part way, a row marked deleted is left without its files, for the next run to finish,
+ * rather than files that nothing refers to. Care logged with a photo keeps its place in the log
+ * without it (D41). Run by a background job for no one signed in, so there's no `can()` to check:
+ * whoever deleted the photo was checked then. Pages never call this.
+ */
+export async function purgeDeletedPhotos(
+	homeId: string,
+	deletedBefore: Date
+): Promise<PurgeResult> {
+	const { db } = getConnection();
+	const expired = and(eq(photo.homeId, homeId), lt(photo.deletedAt, deletedBefore));
+	const found = db
+		.select({ id: photo.id, fileKey: photo.fileKey })
+		.from(photo)
+		.where(expired)
+		.orderBy(asc(photo.deletedAt), asc(photo.id))
+		.all();
+
+	const result: PurgeResult = { removed: 0, failed: [] };
+	for (const { id, fileKey } of found) {
+		try {
+			await removeDeletedPhotoFiles(homeId, fileKey);
+		} catch (error) {
+			result.failed.push({ photoId: id, error });
+			continue;
+		}
+		// Checked again, in case it was put back while its files were being removed.
+		const { changes } = db
+			.delete(photo)
+			.where(and(eq(photo.id, id), expired))
+			.run();
+		result.removed += changes;
+	}
+	return result;
 }

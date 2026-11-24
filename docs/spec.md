@@ -35,6 +35,7 @@ flowchart LR
 - **HTTPS at the proxy.** The app listens on a local port, and whoever hosts it chooses the proxy. Passkeys and push need a real domain with a valid certificate, even on a LAN.
 - **Email is optional.** Without SMTP settings, emailed sign-in links and email digests are switched off. A command-line tool prints one-time sign-in links instead; it also creates the first account.
 - **Upgrades.** Database migrations run at start-up, after an automatic backup of the database to `$DATA_DIR/backups`. If the configuration is invalid or a migration fails, the app refuses to start.
+- **Backups.** The command-line tool backs up the database and then the photos into a folder of their own, and checks the two against each other. See [Photos and backups](#photos-and-backups).
 - **Health check.** `GET /api/health` reports whether the database is answering, for Docker and uptime monitors. It reveals nothing else.
 - **Same build everywhere.** The Docker image and a plain Node install run the same code, configured by environment variables.
 
@@ -91,7 +92,7 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | One per task on a plant; moves and checks aren't scheduled. Next due is a calendar date in the home's time zone, the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task since then + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. Doing or checking the task ends its snooze (D31). The winter interval is stored from version 1 and used from version 2 (D33). |
 | Measurement type | Home | Name, unit | E.g. height in cm, leaf count. |
 | Measurement | Plant, type, user | Value, taken at, optional photo | Charted per type. |
-| Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped (D36), and can be corrected on the photo's page (D39). Files are write-once, named by the file key rather than the photo's id (D35). The user becomes empty if their account is deleted. |
+| Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped (D36), and can be corrected on the photo's page (D39). Files are write-once, named by the file key rather than the photo's id (D35). The user becomes empty if their account is deleted. A deleted photo's row goes with its files, once the grace period is over (D54). |
 | Push subscription | User | Endpoint, keys, device name | Removed when the push service reports it gone. |
 | Notification settings | User + home | Digest channel (email, push from version 2, or off), digest time, quiet hours | One set per home, removed with the membership. Without one, the defaults apply (D46, D47). |
 | Digest log | User + home | Date, channel, task count, sent at | One row per person, home and day, written before the digest is sent, so a restart never sends it twice. A day with nothing due has a row too (D48). |
@@ -216,16 +217,18 @@ Each person gets one daily digest per home, at a time they choose, by push or em
 The database and the photos can live on different drives and be backed up at different times. The design keeps them consistent anyway.
 
 - **Write-once files.** Each upload gets a new, unguessable file name and is never overwritten. Each photo is stored as JPEGs in three sizes: a 400-pixel square thumbnail, up to 1280 pixels and up to 2560 pixels on the longest side, in a folder for its home (D35).
-- **Delayed deletion.** Deleting a photo sets `deleted at` in the database. Its files are removed only after `PHOTO_DELETE_GRACE_DAYS`, by a scheduled job that comes with the backup command (D51).
+- **Delayed deletion.** Deleting a photo sets `deleted at` in the database. Once `PHOTO_DELETE_GRACE_DAYS` have passed, a job that runs every hour removes its files, and then its row (D54).
 - **Clean uploads.** The browser reads the date the photo was taken, then resizes it to 2560 pixels and strips its metadata before upload, sending the date separately (D36). Without JavaScript the original is uploaded and the server reads the date itself. Either way, the server strips GPS and other metadata again, re-encodes the image, enforces size limits (20 MB, 100 megapixels) and an allow-list of types (JPEG, PNG and WebP, judged by the file's contents). HEIC is not on the list, because sharp's standard build can't read it. iPhones normally convert photos to JPEG when uploading from a web page, and the browser's resize produces JPEG anyway, so the server rejects HEIC with a message asking for a JPEG.
 
 Because photo files are only ever added, a photo backup taken after a database backup holds every photo that database refers to.
 
-1. The built-in backup command snapshots the database first, using SQLite's online backup, then copies the photo folder.
+1. The built-in backup command, `node build/cli backup <folder>`, snapshots the database first, using SQLite's online backup, then copies the photo folder, into a new folder inside `<folder>` named for the time. A photo file already in the previous backup there is linked to it rather than copied again, so each backup is complete on its own but only new photos take up more space. `--keep <n>` then removes the oldest backups, leaving `n`. It says, and fails, if photos the database lists have files missing, as when the photo drive isn't mounted (D52).
 2. Deleted photos stay on disk through the grace period, so a photo backup taken later still has them.
-3. An integrity check lists photos the database expects but can't find, and files nothing refers to. A missing photo shows a placeholder, not an error.
+3. An integrity check, `node build/cli check`, runs SQLite's own checks on the database, then lists photos the database expects but can't find, and files nothing refers to. It changes nothing. A missing photo shows a placeholder, not an error (D53).
 
 Restoring an older database alongside newer photos is always safe. The backup order and the grace period cover the reverse.
+
+A backup's folder holds `chloris.db` and `photos/`, laid out as `DATA_DIR` is with its default photo folder. To test a restore, run the check with `DATA_DIR` set to a backup's folder and `PHOTOS_DIR` empty. To restore, stop the server, delete `chloris.db-wal` and `chloris.db-shm` from `DATA_DIR` (they belong to the database being replaced, and would damage the restored one), copy the backup's `chloris.db` into `DATA_DIR` and its `photos/` into `PHOTOS_DIR`, then start the server. A database copied by hand while the server runs, without its `-wal` file, can be missing recent changes: use the backup command instead.
 
 ## Security and privacy
 
