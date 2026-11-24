@@ -33,9 +33,12 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Daily email digest: scheduler, digest log, quiet hours
 - [x] Backup command and integrity check, and removing deleted photos' files after the grace period (D51)
 - [x] Security baseline: CSP, rate limits, audit log
-- [ ] Install guides for an LXC and for Docker
-- [ ] Release workflow: on a version tag, build the Docker image for x86 and ARM and publish it to GitHub's container registry
-- [ ] About page with the version and a source-code link (AGPL)
+- [ ] Security review of the whole codebase, and fixes for what it finds
+- [ ] Make the repository public (D25): README brought up to date, a security policy with private vulnerability reporting, CI required before merging
+- [ ] About page with the version and a link to that version's source code (AGPL)
+- [ ] Release workflow: on a version tag, build the Docker image for x86 and ARM and publish it to GitHub's container registry; decide how a plain Node install gets the built app (a release archive, or building from a clone); Dependabot updating the image's base; tried first with a release candidate
+- [ ] Install guides for an LXC and for Docker, written by installing the release candidate: upgrades, backups and a test restore, settings behind Caddy or a tunnel
+- [ ] Release 1.0.0, after using the release candidate at home for a while
 
 ## Version 2: sharing and push
 
