@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getConnection, type Db } from '../db';
-import { plant, room } from '../db/schema';
+import { photo, plant, room } from '../db/schema';
 import { optionalText } from './fields';
 import { byName } from './order';
 
@@ -15,6 +15,9 @@ import { byName } from './order';
  * anything here. Their screens come with the Memorial view and the family tree. When parent
  * plants become editable, check that the parent is in the same home, as `createPlant` checks
  * the room.
+ *
+ * A plant's tile shows its cover photo: one of its photos chosen on the timeline, or else its
+ * latest (D42). Choosing one needs `plant:edit`.
  */
 
 /** Tags on one plant, and how long each may be. */
@@ -35,6 +38,10 @@ export interface Plant {
 	soil: string | null;
 	tags: string[];
 	notes: string | null;
+	/** The photo its tile shows: the one chosen as its cover, or else its latest (D42). */
+	coverPhotoId: string | null;
+	/** Whether its cover was chosen, rather than being its latest photo. */
+	coverChosen: boolean;
 }
 
 /** A plant as the Plants page lists it. */
@@ -44,6 +51,8 @@ export interface PlantSummary {
 	species: string | null;
 	roomId: string;
 	tags: string[];
+	/** The photo its tile shows, as for `Plant`. */
+	coverPhotoId: string | null;
 }
 
 /**
@@ -111,6 +120,28 @@ const columns = {
 	notes: plant.notes
 };
 
+/** The plant's chosen cover, while it's still one of the plant's photos. */
+const chosenCover = sql<string | null>`(
+	select ${photo.id} from ${photo}
+	where ${photo.id} = ${plant.coverPhotoId} and ${photo.plantId} = ${plant.id}
+		and ${photo.homeId} = ${plant.homeId} and ${photo.deletedAt} is null
+)`;
+
+/** The plant's latest photo: the first in its timeline (`listPhotos`). */
+const latestPhoto = sql<string | null>`(
+	select ${photo.id} from ${photo}
+	where ${photo.plantId} = ${plant.id} and ${photo.homeId} = ${plant.homeId}
+		and ${photo.deletedAt} is null
+	order by ${photo.takenAt} desc, ${photo.createdAt} desc, ${photo.id} desc
+	limit 1
+)`;
+
+/** The photo a plant's tile shows (D42). */
+const coverColumns = {
+	coverPhotoId: sql<string | null>`coalesce(${chosenCover}, ${latestPhoto})`,
+	coverChosen: sql<boolean>`${chosenCover} is not null`.mapWith(Boolean)
+};
+
 type Tx = Pick<Db, 'select'>;
 
 /** The name of a room in `homeId`, or `null` if the home has no such room. */
@@ -138,19 +169,24 @@ export function createPlant(homeId: string, input: PlantInput): Plant | null {
 			.values({ id: randomUUID(), homeId, ...values })
 			.returning(columns)
 			.get();
-		return { ...created, roomName: name };
+		return { ...created, roomName: name, coverPhotoId: null, coverChosen: false };
 	});
 }
 
-/** One plant in `homeId`, whatever its status, or `null` if it has none with that id. */
-export function getPlant(homeId: string, plantId: string): Plant | null {
-	const row = getConnection()
-		.db.select({ ...columns, roomName: room.name })
+/** One plant in `homeId`, with its room's name and its cover, or `null`. */
+function findPlant(tx: Tx, homeId: string, plantId: string): Plant | null {
+	const row = tx
+		.select({ ...columns, roomName: room.name, ...coverColumns })
 		.from(plant)
 		.innerJoin(room, and(eq(room.id, plant.roomId), eq(room.homeId, plant.homeId)))
 		.where(and(eq(plant.id, plantId), eq(plant.homeId, homeId)))
 		.get();
 	return row ?? null;
+}
+
+/** One plant in `homeId`, whatever its status, or `null` if it has none with that id. */
+export function getPlant(homeId: string, plantId: string): Plant | null {
+	return findPlant(getConnection().db, homeId, plantId);
 }
 
 /**
@@ -170,7 +206,8 @@ export function listPlants(homeId: string, filter: PlantFilter = {}): PlantSumma
 			nickname: plant.nickname,
 			species: plant.species,
 			roomId: plant.roomId,
-			tags: plant.tags
+			tags: plant.tags,
+			coverPhotoId: coverColumns.coverPhotoId
 		})
 		.from(plant)
 		.where(and(...conditions))
@@ -189,9 +226,45 @@ export function updatePlant(homeId: string, plantId: string, input: PlantInput):
 		if (!tx.select({ id: plant.id }).from(plant).where(inHome).get()) {
 			return { ok: false, reason: 'not-found' } as const;
 		}
-		const name = roomName(tx, homeId, values.roomId);
-		if (name === null) return { ok: false, reason: 'no-such-room' } as const;
-		const updated = tx.update(plant).set(values).where(inHome).returning(columns).get();
-		return { ok: true, plant: { ...updated, roomName: name } } as const;
+		if (roomName(tx, homeId, values.roomId) === null) {
+			return { ok: false, reason: 'no-such-room' } as const;
+		}
+		tx.update(plant).set(values).where(inHome).run();
+		const updated = findPlant(tx, homeId, plantId);
+		if (!updated) throw new Error('The plant just changed has gone');
+		return { ok: true, plant: updated } as const;
 	});
+}
+
+/**
+ * Chooses one of a plant's photos in `homeId` as its cover, or with `null`, goes back to its
+ * latest photo (D42). Returns `false`, changing nothing, if the home has no such plant, or the
+ * photo isn't one of the plant's or was deleted. Callers check `can(user, homeId, 'plant:edit')`
+ * first.
+ */
+export function setCoverPhoto(homeId: string, plantId: string, photoId: string | null): boolean {
+	const inHome = and(eq(plant.id, plantId), eq(plant.homeId, homeId));
+	return getConnection().db.transaction(
+		(tx) => {
+			if (!tx.select({ id: plant.id }).from(plant).where(inHome).get()) return false;
+			if (photoId !== null) {
+				const own = tx
+					.select({ id: photo.id })
+					.from(photo)
+					.where(
+						and(
+							eq(photo.id, photoId),
+							eq(photo.plantId, plantId),
+							eq(photo.homeId, homeId),
+							isNull(photo.deletedAt)
+						)
+					)
+					.get();
+				if (!own) return false;
+			}
+			tx.update(plant).set({ coverPhotoId: photoId }).where(inHome).run();
+			return true;
+		},
+		{ behavior: 'immediate' }
+	);
 }

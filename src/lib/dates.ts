@@ -44,6 +44,15 @@ export function formatLongDate(value: string): string {
 		.replace(',', '');
 }
 
+/** The month a calendar date falls in, with its year: `November 2026`. */
+export function formatMonth(value: string): string {
+	return new Intl.DateTimeFormat('en-GB', {
+		timeZone: 'UTC',
+		month: 'long',
+		year: 'numeric'
+	}).format(utcMidnight(value));
+}
+
 /** The calendar date `days` after `date` (before it, if negative). */
 export function addDays(date: string, days: number): string {
 	return new Date(utcMidnight(date) + days * DAY_MS).toISOString().slice(0, 10);

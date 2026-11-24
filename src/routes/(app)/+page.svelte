@@ -138,7 +138,7 @@
 							href={plantLink(plant.id)}
 							class="-m-1 flex items-center gap-3 rounded-lg p-1 outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
 						>
-							<PlantTile id={plant.id} name={plant.name} />
+							<PlantTile id={plant.id} name={plant.name} photoId={plant.photoId} />
 							<span class="min-w-0 flex-1 truncate font-medium">{plant.name}</span>
 							<ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 						</a>

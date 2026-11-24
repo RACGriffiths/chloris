@@ -3,14 +3,20 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { insertUser, markPhotoDeleted, testJpeg, useTestDatabase } from '../testing';
+import { addMember, insertUser, markPhotoDeleted, testJpeg, useTestDatabase } from '../testing';
 import { createHome } from './homes';
 import {
 	addPhoto,
+	addPhotoWith,
+	deletePhoto,
+	getPhoto,
 	listPhotos,
 	readPhoto,
 	takenAtFrom,
+	updatePhoto,
 	type Photo,
+	type PhotoChangeInput,
+	type PhotoEditor,
 	type PhotoInput
 } from './photos';
 import { createPlant } from './plants';
@@ -18,9 +24,13 @@ import { createRoom } from './rooms';
 
 const folders = useTestDatabase();
 
-/** Two homes, each with an owner and a plant. Alice's is in London, Bob's in Paris. */
+/**
+ * Two homes, each with an owner and a plant. Alice's is in London, Bob's in Paris. Carol sits
+ * Alice's plants: she can add photos but not edit plants.
+ */
 let alice: string;
 let bob: string;
+let carol: string;
 let aliceHome: string;
 let bobHome: string;
 let fern: string;
@@ -31,6 +41,11 @@ const now = new Date('2026-06-15T09:00:00Z');
 
 let jpeg: Buffer;
 
+/** Who changes photos: the owners, who may edit plants, and Carol, who may not (D40). */
+let asAlice: PhotoEditor;
+let asBob: PhotoEditor;
+let asCarol: PhotoEditor;
+
 beforeEach(async () => {
 	alice = insertUser('alice@example.com', { canCreateHome: true });
 	bob = insertUser('bob@example.com', { canCreateHome: true });
@@ -38,6 +53,11 @@ beforeEach(async () => {
 	bobHome = createHome(bob, { name: "Bob's house", timeZone: 'Europe/Paris' }).id;
 	fern = addPlant(aliceHome, 'Fern');
 	cactus = addPlant(bobHome, 'Cactus');
+	carol = insertUser('carol@example.com');
+	addMember(aliceHome, carol, 'sitter');
+	asAlice = { userId: alice, anyPhoto: true };
+	asBob = { userId: bob, anyPhoto: true };
+	asCarol = { userId: carol, anyPhoto: false };
 	jpeg = await testJpeg();
 });
 
@@ -220,5 +240,186 @@ describe('readPhoto', () => {
 		fs.rmSync(path.join(folders.photosDir, aliceHome), { recursive: true });
 
 		expect(await readPhoto(aliceHome, photo.id, 'thumb')).toEqual({ ok: false, reason: 'missing' });
+	});
+});
+
+describe('addPhotoWith', () => {
+	it('stores neither the photo nor its files when what comes with it fails', async () => {
+		await expect(
+			addPhotoWith(aliceHome, alice, fern, {}, jpeg, { now }, () => {
+				throw new Error('Refused');
+			})
+		).rejects.toThrow('Refused');
+
+		expect(listPhotos(aliceHome, fern)).toEqual([]);
+		expect(filesOnDisk()).toEqual([]);
+	});
+
+	it('dates a photo with no date of its own as it is told to', async () => {
+		const careTime = new Date('2026-06-14T08:00:00Z');
+
+		const result = await addPhotoWith(
+			aliceHome,
+			alice,
+			fern,
+			{},
+			jpeg,
+			{ now, undated: careTime },
+			(_tx, photo) => photo.id
+		);
+
+		if (!result.ok) throw new Error(`Photo refused: ${result.reason}`);
+		expect(result.photo.takenAt).toEqual(careTime);
+		expect(result.recorded).toBe(result.photo.id);
+	});
+});
+
+describe('getPhoto', () => {
+	it("gives a photo of the plant, never another home's or another plant's", async () => {
+		const photo = await add(aliceHome, alice, fern, { caption: 'New leaf' });
+		const ivy = addPlant(aliceHome, 'Ivy');
+
+		expect(getPhoto(aliceHome, fern, photo.id)).toEqual({ ...photo, care: null });
+		expect(getPhoto(aliceHome, ivy, photo.id)).toBeNull();
+		expect(getPhoto(bobHome, fern, photo.id)).toBeNull();
+		expect(getPhoto(bobHome, cactus, photo.id)).toBeNull();
+	});
+
+	it('knows nothing of a deleted photo', async () => {
+		const photo = await add(aliceHome, alice, fern);
+
+		markPhotoDeleted(photo.id);
+
+		expect(getPhoto(aliceHome, fern, photo.id)).toBeNull();
+	});
+});
+
+describe('updatePhoto', () => {
+	/** Changes a photo, as `editor`, at `now`. */
+	const change = (photo: Photo, editor: PhotoEditor, input: PhotoChangeInput, homeId = aliceHome) =>
+		updatePhoto(homeId, photo.plantId, photo.id, editor, input, now);
+
+	it("changes the caption, and when it was taken in the home's time zone", async () => {
+		const photo = await add(aliceHome, alice, fern, { caption: 'Old caption' });
+
+		const result = change(photo, asAlice, { caption: '  Repotted  ', takenAt: '2026-05-10T09:30' });
+
+		// 09:30 in London in May is 08:30 UTC.
+		const changed = { ...photo, caption: 'Repotted', takenAt: new Date('2026-05-10T08:30:00Z') };
+		expect(result).toEqual({ ok: true, photo: changed });
+		expect(getPhoto(aliceHome, fern, photo.id)).toEqual({ ...changed, care: null });
+	});
+
+	it('moves the photo in the timeline, and an empty caption removes it', async () => {
+		const older = await add(aliceHome, alice, fern, { takenAt: '2025-01-01T12:00:00' });
+		const newer = await add(aliceHome, alice, fern, { takenAt: '2025-06-01T12:00:00' });
+
+		const result = change(older, asAlice, { caption: '', takenAt: '2025-07-01T12:00' });
+
+		if (!result.ok) throw new Error(`Change refused: ${result.reason}`);
+		expect(listPhotos(aliceHome, fern)).toEqual([result.photo, newer]);
+		expect(result.photo.caption).toBeNull();
+	});
+
+	it('keeps the seconds of a time left as the form showed it', async () => {
+		const photo = await add(aliceHome, alice, fern, { takenAt: '2025-05-03T14:22:10' });
+
+		const result = change(photo, asAlice, { caption: 'Same time', takenAt: '2025-05-03T14:22' });
+
+		expect(result).toMatchObject({ ok: true, photo: { takenAt: photo.takenAt } });
+	});
+
+	it('refuses a time still to come, or before 1990, and changes nothing', async () => {
+		const photo = await add(aliceHome, alice, fern, { caption: 'Kept' });
+
+		// Now is 10:00 in London.
+		expect(change(photo, asAlice, { caption: 'No', takenAt: '2026-06-15T10:30' })).toEqual({
+			ok: false,
+			reason: 'in-the-future'
+		});
+		expect(change(photo, asAlice, { caption: 'No', takenAt: '1989-12-31T23:00' })).toEqual({
+			ok: false,
+			reason: 'too-early'
+		});
+		expect(getPhoto(aliceHome, fern, photo.id)).toEqual({ ...photo, care: null });
+	});
+
+	it('refuses a date that is not one, and a caption that is too long', async () => {
+		const photo = await add(aliceHome, alice, fern);
+
+		expect(() => change(photo, asAlice, { takenAt: '' })).toThrow('Enter a date and time.');
+		expect(() =>
+			change(photo, asAlice, { caption: 'x'.repeat(201), takenAt: '2026-06-01T09:00' })
+		).toThrow(ZodError);
+	});
+
+	it('lets someone who cannot edit plants change only the photos they added', async () => {
+		const alices = await add(aliceHome, alice, fern);
+		const carols = await add(aliceHome, carol, fern);
+		const input = { caption: 'Changed', takenAt: '2026-06-01T09:00' };
+
+		expect(change(alices, asCarol, input)).toEqual({ ok: false, reason: 'not-yours' });
+		expect(getPhoto(aliceHome, fern, alices.id)?.caption).toBeNull();
+		expect(change(carols, asCarol, input)).toMatchObject({ ok: true });
+		expect(change(carols, asAlice, { ...input, caption: 'Alice too' })).toMatchObject({ ok: true });
+	});
+
+	it("can't change another home's photo, even with its plant's id", async () => {
+		const photo = await add(aliceHome, alice, fern, { caption: 'Kept' });
+		const input = { caption: 'Taken over', takenAt: '2026-06-01T09:00' };
+
+		expect(change(photo, asBob, input, bobHome)).toEqual({ ok: false, reason: 'not-found' });
+		expect(updatePhoto(bobHome, cactus, photo.id, asBob, input, now)).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect(getPhoto(aliceHome, fern, photo.id)).toEqual({ ...photo, care: null });
+	});
+});
+
+describe('deletePhoto', () => {
+	it('takes the photo off the timeline, but keeps its files through the grace period', async () => {
+		const kept = await add(aliceHome, alice, fern);
+		const photo = await add(aliceHome, alice, fern);
+
+		expect(deletePhoto(aliceHome, fern, photo.id, asAlice, now)).toEqual({ ok: true, photo });
+
+		expect(listPhotos(aliceHome, fern)).toEqual([kept]);
+		expect(getPhoto(aliceHome, fern, photo.id)).toBeNull();
+		expect(await readPhoto(aliceHome, photo.id, 'thumb')).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect(filesOnDisk()).toHaveLength(6);
+		expect(deletePhoto(aliceHome, fern, photo.id, asAlice, now)).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+	});
+
+	it('lets someone who cannot edit plants delete only the photos they added', async () => {
+		const alices = await add(aliceHome, alice, fern);
+		const carols = await add(aliceHome, carol, fern);
+
+		expect(deletePhoto(aliceHome, fern, alices.id, asCarol, now)).toEqual({
+			ok: false,
+			reason: 'not-yours'
+		});
+		expect(deletePhoto(aliceHome, fern, carols.id, asCarol, now)).toMatchObject({ ok: true });
+		expect(listPhotos(aliceHome, fern)).toEqual([alices]);
+	});
+
+	it("can't delete another home's photo, even with its plant's id", async () => {
+		const photo = await add(aliceHome, alice, fern);
+
+		expect(deletePhoto(bobHome, fern, photo.id, asBob, now)).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect(deletePhoto(bobHome, cactus, photo.id, asBob, now)).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect(listPhotos(aliceHome, fern)).toEqual([photo]);
 	});
 });

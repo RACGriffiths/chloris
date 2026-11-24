@@ -6,6 +6,7 @@ import {
 	formatCalendarDate,
 	formatMoment,
 	formatLongDate,
+	formatMonth,
 	formatNearDate,
 	localDateTime,
 	zonedTime
@@ -28,6 +29,13 @@ describe('formatNearDate', () => {
 describe('formatLongDate', () => {
 	it('gives the weekday, day and month', () => {
 		expect(formatLongDate('2026-11-24')).toBe('Tuesday 24 November');
+	});
+});
+
+describe('formatMonth', () => {
+	it('gives the month and year, whatever the day', () => {
+		expect(formatMonth('2026-11-01')).toBe('November 2026');
+		expect(formatMonth('2025-05-31')).toBe('May 2025');
 	});
 });
 

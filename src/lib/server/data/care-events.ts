@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { CARE_TYPES, TASKS, isTask, type CareType, type Task } from '../../care';
 import { addDays, calendarDate, zonedTime } from '../../dates';
 import { getConnection, type Db } from '../db';
-import { careEvent, careSchedule, home, plant, user } from '../db/schema';
-import { optionalText } from './fields';
+import { careEvent, careSchedule, home, photo, plant, user } from '../db/schema';
+import type { PhotoProblem } from '../photos/process';
+import { optionalText, stillToCome } from './fields';
 import { compareNames } from './order';
+import { addPhotoWith } from './photos';
 import { findTasks } from './schedules';
 
 /**
@@ -17,15 +19,15 @@ import { findTasks } from './schedules';
  * When each task is next due is worked out from this log (`schedules.ts`), so logging care or
  * undoing it moves the due date with nothing else to update (CLAUDE.md rule 4). The one stored
  * thing logging changes is a snooze: doing or checking a task ends it (D31).
+ *
+ * Care can be logged with a photo (D41), which also needs `photo:add`. The photo joins the
+ * plant's timeline, and stays there if the care is undone.
  */
 
 export const MAX_NOTE_LENGTH = 500;
 
 /** How many plants one tap on the Today view can log a task on. */
 export const MAX_PLANTS_AT_ONCE = 500;
-
-/** How far ahead of the server's clock a time may be, for a phone whose clock runs a little fast. */
-const CLOCK_SLACK_MS = 5 * 60_000;
 
 export interface CareEvent {
 	id: string;
@@ -70,6 +72,12 @@ export const careInput = z
 /** Care as a form sends it, before `careInput` has checked it. */
 export type CareInput = { type: string; checkedTask?: string; doneAt?: string; note?: string };
 
+/** A care event as a plant's history lists it, with the photo added with it. */
+export interface CareHistoryEvent extends CareEvent {
+	/** The photo added with it (D41), unless that photo was deleted. */
+	photoId: string | null;
+}
+
 /** A care event with the plant it was for, as the Today view lists it. */
 export interface CareEventOnPlant extends CareEvent {
 	plantName: string;
@@ -108,6 +116,11 @@ export type LogDueResult =
 /** The outcome of logging care. A refused entry logs nothing. */
 export type LogCareResult =
 	{ ok: true; event: CareEvent } | { ok: false; reason: 'not-found' | 'in-the-future' };
+
+/** The outcome of logging care with a photo. A refused entry stores neither. */
+export type LogCareWithPhotoResult =
+	| { ok: true; event: CareEvent; photoId: string }
+	| { ok: false; reason: 'not-found' | 'in-the-future' | PhotoProblem };
 
 /** The outcome of undoing care: the event that was removed, or why nothing was. */
 export type UndoCareResult =
@@ -167,7 +180,14 @@ function insertCare(
 	homeId: string,
 	userId: string,
 	plantId: string,
-	care: { type: CareType; checkedTask: Task | null; doneAt: Date; note: string | null; now: Date }
+	care: {
+		type: CareType;
+		checkedTask: Task | null;
+		doneAt: Date;
+		note: string | null;
+		photoId?: string;
+		now: Date;
+	}
 ): string {
 	const id = randomUUID();
 	tx.insert(careEvent)
@@ -180,6 +200,7 @@ function insertCare(
 			checkedTask: care.checkedTask,
 			doneAt: care.doneAt,
 			note: care.note,
+			photoId: care.photoId,
 			createdAt: care.now
 		})
 		.run();
@@ -201,6 +222,29 @@ function insertCare(
 }
 
 /**
+ * When care given to a plant in `homeId` was done: `doneAt`, a time in the home's time zone, or
+ * else now. Refused if the home has no such plant, or the time is still to come.
+ */
+function careTime(
+	tx: Tx,
+	homeId: string,
+	plantId: string,
+	doneAt: string | null,
+	now: Date
+): { ok: true; doneAt: Date } | { ok: false; reason: 'not-found' | 'in-the-future' } {
+	const found = tx
+		.select({ timeZone: home.timeZone })
+		.from(plant)
+		.innerJoin(home, eq(home.id, plant.homeId))
+		.where(and(eq(plant.id, plantId), eq(plant.homeId, homeId)))
+		.get();
+	if (!found) return notFound;
+	const time = doneAt ? zonedTime(doneAt, found.timeZone) : now;
+	if (stillToCome(time, now)) return { ok: false, reason: 'in-the-future' } as const;
+	return { ok: true, doneAt: time };
+}
+
+/**
  * Logs care given to a plant in `homeId` by `userId`: now, or at an earlier time the input gives.
  * Doing or checking a task ends its snooze. Refused if the home has no such plant, or the time is
  * in the future. Callers check `can(user, homeId, 'care:log')` first. Throws a `ZodError` if the
@@ -216,23 +260,13 @@ export function logCare(
 	const values = careInput.parse(input);
 	const checkedTask = values.type === 'checked' ? values.checkedTask : null;
 	return getConnection().db.transaction((tx) => {
-		const found = tx
-			.select({ timeZone: home.timeZone })
-			.from(plant)
-			.innerJoin(home, eq(home.id, plant.homeId))
-			.where(and(eq(plant.id, plantId), eq(plant.homeId, homeId)))
-			.get();
-		if (!found) return notFound;
-
-		const doneAt = values.doneAt ? zonedTime(values.doneAt, found.timeZone) : now;
-		if (doneAt.getTime() > now.getTime() + CLOCK_SLACK_MS) {
-			return { ok: false, reason: 'in-the-future' } as const;
-		}
+		const when = careTime(tx, homeId, plantId, values.doneAt, now);
+		if (!when.ok) return when;
 
 		const id = insertCare(tx, homeId, userId, plantId, {
 			type: values.type,
 			checkedTask,
-			doneAt,
+			doneAt: when.doneAt,
 			note: values.note,
 			now
 		});
@@ -243,6 +277,53 @@ export function logCare(
 }
 
 /**
+ * Logs care as `logCare` does, with a photo of the plant taken at the time (D41): `file`, checked
+ * and stored as `addPhoto` stores any photo, and dated by its own EXIF data, or else `takenAt`,
+ * the date the browser read from it, or else when the care was done. Either both are stored or
+ * neither is. Refused if the home has no such plant, the time is in the future, or the file isn't
+ * a photo the server accepts. Callers check `can(user, homeId, 'care:log')` and
+ * `can(user, homeId, 'photo:add')` first. Throws a `ZodError` if the input is invalid.
+ */
+export async function logCareWithPhoto(
+	homeId: string,
+	userId: string,
+	plantId: string,
+	input: CareInput & { takenAt?: string },
+	file: Uint8Array,
+	now = new Date()
+): Promise<LogCareWithPhotoResult> {
+	const values = careInput.parse(input);
+	const checkedTask = values.type === 'checked' ? values.checkedTask : null;
+	// Checked first, so a refused time doesn't wait for the photo to be processed.
+	const when = careTime(getConnection().db, homeId, plantId, values.doneAt, now);
+	if (!when.ok) return when;
+
+	const added = await addPhotoWith(
+		homeId,
+		userId,
+		plantId,
+		{ takenAt: input.takenAt },
+		file,
+		{ now, undated: when.doneAt },
+		(tx, photo) => {
+			const id = insertCare(tx, homeId, userId, plantId, {
+				type: values.type,
+				checkedTask,
+				doneAt: when.doneAt,
+				note: values.note,
+				photoId: photo.id,
+				now
+			});
+			const event = findEvent(tx, homeId, plantId, id);
+			if (!event) throw new Error('The care event just logged has gone');
+			return event;
+		}
+	);
+	if (!added.ok) return added;
+	return { ok: true, event: added.recorded, photoId: added.photo.id };
+}
+
+/**
  * A plant's care history in `homeId`, latest first: at most `limit` events, and whether there are
  * more. Empty if the home has no such plant. Callers check `can(user, homeId, 'home:view')` first.
  */
@@ -250,8 +331,19 @@ export function listCareEvents(
 	homeId: string,
 	plantId: string,
 	limit = 50
-): { events: CareEvent[]; more: boolean } {
-	const rows = selectEvents(getConnection().db)
+): { events: CareHistoryEvent[]; more: boolean } {
+	const rows = getConnection()
+		.db.select({ ...eventColumns, photoId: photo.id })
+		.from(careEvent)
+		.leftJoin(user, eq(user.id, careEvent.userId))
+		.leftJoin(
+			photo,
+			and(
+				eq(photo.id, careEvent.photoId),
+				eq(photo.homeId, careEvent.homeId),
+				isNull(photo.deletedAt)
+			)
+		)
 		.where(and(eq(careEvent.plantId, plantId), eq(careEvent.homeId, homeId)))
 		.orderBy(desc(careEvent.doneAt), desc(careEvent.createdAt), desc(careEvent.id))
 		.limit(limit + 1)

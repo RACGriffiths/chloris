@@ -1,12 +1,19 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { cn } from '#lib/utils.js';
 
 	/**
-	 * A plant's tile: a square in one of a few leaf tones, holding the first letter of its name.
-	 * It stands in for the cover photo until photos arrive. The tone comes from the plant's id, so
-	 * a plant keeps its colour when it's renamed.
+	 * A plant's tile: its cover photo (D42), or for a plant with no photos, a square in one of a
+	 * few leaf tones holding the first letter of its name. The tone comes from the plant's id, so a
+	 * plant keeps its colour when it's renamed, and shows behind the photo while it loads. The tile
+	 * sits beside the plant's name, so it's hidden from screen readers.
 	 */
-	let { id, name, class: className = '' }: { id: string; name: string; class?: string } = $props();
+	let {
+		id,
+		name,
+		photoId = null,
+		class: className = ''
+	}: { id: string; name: string; photoId?: string | null; class?: string } = $props();
 
 	// Written out in full so Tailwind finds the class names when it scans this file.
 	const TONES = [
@@ -27,13 +34,26 @@
 	let initial = $derived(Array.from(name.trim())[0]?.toLocaleUpperCase() ?? '');
 </script>
 
+<!-- `overflow-hidden` clips the photo to the tile's rounded corners. -->
 <span
 	aria-hidden="true"
 	class={cn(
-		'grid size-11 shrink-0 place-items-center rounded-xl text-lg font-semibold select-none',
+		'grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl text-lg font-semibold select-none',
 		tone,
 		className
 	)}
 >
-	{initial}
+	{#if photoId}
+		<!-- The square thumbnail, filling the tile. `alt=""` because the name is beside it. -->
+		<img
+			src={resolve(`photos/${photoId}/thumb`)}
+			alt=""
+			width="400"
+			height="400"
+			loading="lazy"
+			class="size-full object-cover"
+		/>
+	{:else}
+		{initial}
+	{/if}
 </span>

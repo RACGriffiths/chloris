@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view and the photo pipeline are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, and the photo timeline with cover photos are in.
 
 ## Read first
 
@@ -55,14 +55,17 @@ src/
                       screen, calendar dates and times in the home's time zone, photo sizes and
                       limits, reading the date a photo was taken from its EXIF data
   lib/photo-upload.ts resizing a photo in the browser before upload (load with await import())
+  lib/photo-field.ts  for a form that sends a photo: swaps in the resized copy, loading
+                      photo-upload.ts only once a photo is sent
   lib/components/     the app's own components (plant form, room fields, plant tile, care schedule,
                       log care form, schedule fields, due task)
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
                       change package versions, so check package.json afterwards)
   routes/
     (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
-    (app)/        the signed-in app: the Today view (the home page), plants, rooms, members and
-                  invites, the account page, and photos/[photoId]/[size], which serves photo files
+    (app)/        the signed-in app: the Today view (the home page), plants, each photo's page
+                  (plants/[plantId]/photos/[photoId]), rooms, members and invites, the account
+                  page, and photos/[photoId]/[size], which serves photo files
 tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
 ```
 

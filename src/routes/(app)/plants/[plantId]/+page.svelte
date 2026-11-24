@@ -39,6 +39,7 @@
 	];
 
 	const byRoom = (roomId: string) => resolve(`plants?room=${roomId}`);
+	const photoPage = (photoId: string) => resolve(`plants/${plant.id}/photos/${photoId}`);
 	const byTag = (tag: string) => resolve(`plants?${new URLSearchParams({ tag }).toString()}`);
 
 	let undoing = $state(false);
@@ -54,7 +55,12 @@
 </Button>
 
 <div class="mt-3 flex items-start gap-4">
-	<PlantTile id={plant.id} name={plant.nickname} class="size-16 rounded-2xl text-2xl" />
+	<PlantTile
+		id={plant.id}
+		name={plant.nickname}
+		photoId={plant.coverPhotoId}
+		class="size-16 rounded-2xl text-2xl"
+	/>
 	<div class="min-w-0 flex-1">
 		<h1 class="text-2xl font-semibold tracking-tight break-words">{plant.nickname}</h1>
 		{#if plant.species}
@@ -183,6 +189,7 @@
 				errors={form?.log?.errors}
 				latest={data.latest}
 				noteLimit={data.noteLimit}
+				canAddPhoto={data.canAddPhoto}
 			/>
 		</div>
 	{/if}
@@ -211,6 +218,22 @@
 							<p class="mt-1 text-sm break-words whitespace-pre-line">{item.note}</p>
 						{/if}
 					</div>
+					{#if item.photoId}
+						<!-- The photo added with the care (D41), opening its page. -->
+						<a
+							href={photoPage(item.photoId)}
+							class="shrink-0 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+						>
+							<img
+								src={resolve(`photos/${item.photoId}/thumb`)}
+								alt="Photo: {item.name}"
+								width="400"
+								height="400"
+								loading="lazy"
+								class="size-11 rounded-md bg-muted object-cover"
+							/>
+						</a>
+					{/if}
 					{#if item.yours && data.canLog}
 						<!-- Two taps to remove, so a stray one can't. -->
 						<details class="shrink-0">
@@ -260,18 +283,31 @@
 </section>
 
 <section class="mt-8" aria-labelledby="photos">
-	<h2 id="photos" class="text-lg font-semibold">Photos</h2>
+	<div class="flex items-baseline justify-between gap-3">
+		<h2 id="photos" class="text-lg font-semibold">Photos</h2>
+		{#if data.photoCount > 0}
+			<p class="text-sm text-muted-foreground">
+				{data.photoCount}
+				{data.photoCount === 1 ? 'photo' : 'photos'}
+			</p>
+		{/if}
+	</div>
 	{#if form?.photoAdded}
 		<p role="status" class="mt-3 rounded-lg bg-secondary px-3 py-2 text-sm">{form.photoAdded}</p>
 	{/if}
 
-	{#if data.photos.length > 0}
+	<!-- The timeline: a heading for each month, the latest first, with its photos under it. -->
+	{#each data.timeline as group (group.month)}
+		<h3 class="mt-4 text-sm font-medium text-muted-foreground">{group.month}</h3>
 		<!-- Three square thumbnails to a row. `object-cover` fills each square, cropping the edges. -->
-		<ul class="mt-3 grid grid-cols-3 gap-2" aria-label="Photos of {plant.nickname}">
-			{#each data.photos as photo (photo.id)}
+		<ul class="mt-2 grid grid-cols-3 gap-2" aria-label="Photos from {group.month}">
+			{#each group.photos as photo (photo.id)}
 				<li class="min-w-0">
-					<!-- The full size is a plain image, not a page, so the browser loads it itself. -->
-					<a href={resolve(`photos/${photo.id}/full`)} data-sveltekit-reload class="block">
+					<!-- `relative` lets the Cover label sit over the photo's corner. -->
+					<a
+						href={photoPage(photo.id)}
+						class="relative block rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+					>
 						<!-- `loading="lazy"` waits to fetch thumbnails until they're scrolled near. -->
 						<img
 							src={resolve(`photos/${photo.id}/thumb`)}
@@ -281,6 +317,13 @@
 							loading="lazy"
 							class="aspect-square w-full rounded-md bg-muted object-cover"
 						/>
+						{#if photo.cover}
+							<span
+								class="absolute top-1.5 left-1.5 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium"
+							>
+								Cover
+							</span>
+						{/if}
 					</a>
 					<p class="mt-1 truncate text-xs text-muted-foreground">{photo.taken}</p>
 					{#if photo.caption}
@@ -293,6 +336,16 @@
 		<p class="mt-2 text-sm text-muted-foreground">
 			No photos yet. They'll line up here, the latest first, so you can see {plant.nickname} grow.
 		</p>
+	{/each}
+
+	{#if data.morePhotos}
+		<Button
+			href={resolve(`plants/${plant.id}?photos=all#photos`)}
+			variant="ghost"
+			class="mt-2 h-11 w-full"
+		>
+			Show all {data.photoCount} photos
+		</Button>
 	{/if}
 
 	{#if data.canAddPhoto}

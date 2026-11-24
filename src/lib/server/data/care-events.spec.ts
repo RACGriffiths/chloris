@@ -1,10 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import sharp from 'sharp';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { insertUser, setPlantStatus, useTestDatabase } from '../testing';
+import { insertUser, setPlantStatus, testJpeg, useTestDatabase } from '../testing';
 import {
 	listCareEvents,
 	listCareToday,
 	logCare,
+	logCareWithPhoto,
 	logDueTasks,
 	undoCare,
 	undoCareEvents,
@@ -13,11 +17,12 @@ import {
 	type DueCareInput
 } from './care-events';
 import { createHome } from './homes';
+import { deletePhoto, getPhoto, listPhotos } from './photos';
 import { createPlant } from './plants';
 import { createRoom } from './rooms';
 import { createSchedule, listSchedules, snoozeTask } from './schedules';
 
-useTestDatabase();
+const folders = useTestDatabase();
 
 /** Two homes, each with an owner and a plant. Alice's is in London, Bob's in Paris. */
 let alice: string;
@@ -69,7 +74,15 @@ function log(homeId: string, userId: string, plantId: string, input: CareInput, 
 	return result.event;
 }
 
-const history = (homeId: string, plantId: string) => listCareEvents(homeId, plantId).events;
+/**
+ * A plant's care history, each event as `logCare` gave it. Only care logged with a photo has a
+ * `photoId`, so it's checked and left out.
+ */
+const history = (homeId: string, plantId: string) =>
+	listCareEvents(homeId, plantId).events.map(({ photoId, ...event }) => {
+		expect(photoId).toBeNull();
+		return event;
+	});
 
 /** The form messages a ZodError carries, or `[]` if `run` doesn't throw one. */
 function messages(run: () => unknown): string[] {
@@ -471,5 +484,104 @@ describe('undoCareEvents', () => {
 		expect(undoCareEvents(bobHome, bob, [watered.id])).toEqual({ ok: false, reason: 'not-found' });
 
 		expect(history(aliceHome, fern)).toEqual([watered]);
+	});
+});
+
+describe('logCareWithPhoto', () => {
+	let jpeg: Buffer;
+
+	beforeEach(async () => {
+		jpeg = await testJpeg();
+	});
+
+	/** Logs care with a photo that must be accepted. */
+	async function logWithPhoto(input: CareInput & { takenAt?: string }) {
+		const result = await logCareWithPhoto(aliceHome, alice, fern, input, jpeg, now);
+		if (!result.ok) throw new Error(`Care refused: ${result.reason}`);
+		return result;
+	}
+
+	/** Every file in the photo folder. */
+	const filesOnDisk = () =>
+		fs
+			.readdirSync(folders.photosDir, { recursive: true, encoding: 'utf8' })
+			.filter((name) => fs.statSync(path.join(folders.photosDir, name)).isFile());
+
+	it('logs the care and adds the photo to the timeline together', async () => {
+		const { event, photoId } = await logWithPhoto({ type: 'repot', note: 'Bigger pot' });
+
+		expect(event).toMatchObject({ type: 'repot', note: 'Bigger pot', doneAt: now, userId: alice });
+		expect(listCareEvents(aliceHome, fern).events).toEqual([{ ...event, photoId }]);
+		expect(listPhotos(aliceHome, fern)).toMatchObject([{ id: photoId, takenAt: now }]);
+		expect(getPhoto(aliceHome, fern, photoId)?.care).toEqual({
+			type: 'repot',
+			checkedTask: null,
+			doneAt: now
+		});
+	});
+
+	it('dates a photo with no date of its own when the care was done, and others by theirs', async () => {
+		const undated = await logWithPhoto({ type: 'prune', doneAt: '2026-06-14T18:00' });
+		const dated = await logWithPhoto({
+			type: 'water',
+			doneAt: '2026-06-14T18:00',
+			takenAt: '2026-06-14T17:55:00'
+		});
+
+		// 18:00 in London in June is 17:00 UTC; the date the browser read from the photo wins.
+		const takenAt = (photoId: string) => getPhoto(aliceHome, fern, photoId)?.takenAt;
+		expect(takenAt(undated.photoId)).toEqual(new Date('2026-06-14T17:00:00Z'));
+		expect(takenAt(dated.photoId)).toEqual(new Date('2026-06-14T16:55:00Z'));
+	});
+
+	it('stores neither when the time is still to come, or the photo is refused', async () => {
+		const gif = await sharp(jpeg).gif().toBuffer();
+
+		expect(
+			await logCareWithPhoto(
+				aliceHome,
+				alice,
+				fern,
+				{ type: 'water', doneAt: '2026-06-15T12:00' },
+				jpeg,
+				now
+			)
+		).toEqual({ ok: false, reason: 'in-the-future' });
+		expect(await logCareWithPhoto(aliceHome, alice, fern, { type: 'water' }, gif, now)).toEqual({
+			ok: false,
+			reason: 'unsupported'
+		});
+
+		expect(history(aliceHome, fern)).toEqual([]);
+		expect(listPhotos(aliceHome, fern)).toEqual([]);
+		expect(filesOnDisk()).toEqual([]);
+	});
+
+	it("won't log care with a photo on another home's plant, and stores nothing", async () => {
+		expect(await logCareWithPhoto(aliceHome, alice, cactus, { type: 'water' }, jpeg, now)).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+
+		expect(history(bobHome, cactus)).toEqual([]);
+		expect(listPhotos(bobHome, cactus)).toEqual([]);
+		expect(filesOnDisk()).toEqual([]);
+	});
+
+	it('keeps the photo when the care is undone', async () => {
+		const { event, photoId } = await logWithPhoto({ type: 'repot' });
+
+		expect(undoCare(aliceHome, alice, fern, event.id)).toMatchObject({ ok: true });
+
+		expect(listPhotos(aliceHome, fern)).toMatchObject([{ id: photoId }]);
+		expect(getPhoto(aliceHome, fern, photoId)?.care).toBeNull();
+	});
+
+	it('leaves a deleted photo out of the history, keeping the care', async () => {
+		const { event, photoId } = await logWithPhoto({ type: 'repot' });
+
+		deletePhoto(aliceHome, fern, photoId, { userId: alice, anyPhoto: true }, now);
+
+		expect(listCareEvents(aliceHome, fern).events).toEqual([{ ...event, photoId: null }]);
 	});
 });

@@ -5,6 +5,7 @@ import {
 	calendarDate,
 	formatCalendarDate,
 	formatMoment,
+	formatMonth,
 	formatNearDate,
 	relativeDay
 } from '#lib/dates.js';
@@ -13,9 +14,10 @@ import {
 	careInput,
 	listCareEvents,
 	logCare,
+	logCareWithPhoto,
 	undoCare
 } from '#lib/server/data/care-events.js';
-import { addPhoto, listPhotos, photoInput } from '#lib/server/data/photos.js';
+import { addPhoto, listPhotos, photoInput, type Photo } from '#lib/server/data/photos.js';
 import { getPlant } from '#lib/server/data/plants.js';
 import {
 	MAX_SNOOZE_DAYS,
@@ -25,7 +27,7 @@ import {
 	snoozeTask
 } from '#lib/server/data/schedules.js';
 import { fieldErrors, textField, textFields } from '#lib/server/forms.js';
-import { requireHome } from '#lib/server/permissions/guard.js';
+import { requireHome, requirePermission } from '#lib/server/permissions/guard.js';
 import { can } from '#lib/server/permissions/index.js';
 import type { Home } from '#lib/server/data/homes.js';
 import type { PhotoProblem } from '#lib/server/photos/process.js';
@@ -34,14 +36,17 @@ import type { Actions, PageServerLoad } from './$types';
 
 /**
  * A plant's page: its details, its care schedules with what's due, its care history (D31, D32)
- * and its photos (D38). Measurements come with a later item. Logging, checking, snoozing and
- * undoing care, and adding photos, happen here; schedules are added and changed on their own
- * pages.
+ * and its photo timeline (D39). Measurements come with a later item. Logging, checking, snoozing
+ * and undoing care, and adding photos, happen here; schedules are added and changed on their own
+ * pages, and each photo has its own page.
  */
 
 /** How much care history the page shows before "Show all". */
 const HISTORY_LIMIT = 20;
 const ALL_HISTORY = 10_000;
+
+/** How many photos the timeline shows before "Show all": four rows of three. */
+const PHOTO_LIMIT = 12;
 
 const MAX_MEGABYTES = MAX_PHOTO_BYTES / 1024 / 1024;
 
@@ -65,6 +70,32 @@ function plantIn(home: Home, plantId: string) {
 	return plant;
 }
 
+/**
+ * The form sent, or `null` if it was bigger than the server takes: the Node adapter stops reading
+ * a request over BODY_SIZE_LIMIT with a 413 (D37).
+ */
+async function readForm(request: Request): Promise<FormData | null> {
+	try {
+		return await request.formData();
+	} catch (problem) {
+		if ((problem as { status?: unknown }).status !== 413) throw problem;
+		return null;
+	}
+}
+
+/** The photo a form sent, as bytes, or `null` if none was chosen. */
+async function photoBytes(form: FormData): Promise<Uint8Array | null> {
+	const file = form.get('photo');
+	if (!(file instanceof File) || file.size === 0) return null;
+	return new Uint8Array(await file.arrayBuffer());
+}
+
+/** A day near today, as a label: `Today`, `Yesterday`, `Mon 17 Nov`, `3 May 2025`. */
+function dayLabel(date: string, today: string): string {
+	const day = relativeDay(date, today);
+	return `${day.charAt(0).toUpperCase()}${day.slice(1)}`;
+}
+
 export const load: PageServerLoad = ({ locals, params, url }) => {
 	const { user, home } = requireHome(locals, 'home:view');
 	const plant = plantIn(home, params.plantId);
@@ -76,6 +107,7 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 	const showAll = url.searchParams.get('history') === 'all';
 	const history = listCareEvents(home.id, plant.id, showAll ? ALL_HISTORY : HISTORY_LIMIT);
 	const photos = listPhotos(home.id, plant.id);
+	const allPhotos = url.searchParams.get('photos') === 'all';
 
 	return {
 		plant: { ...plant, acquired: plant.acquiredOn ? formatCalendarDate(plant.acquiredOn) : null },
@@ -100,17 +132,18 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 			when: formatMoment(event.doneAt, zone, now),
 			by: event.userId === user.id ? 'you' : (event.userName ?? 'someone who has left'),
 			note: event.note,
+			photoId: event.photoId,
 			yours: event.userId === user.id
 		})),
 		moreHistory: history.more,
-		photos: photos.map((photo) => {
-			const day = relativeDay(calendarDate(photo.takenAt, zone), today);
-			return {
-				id: photo.id,
-				caption: photo.caption,
-				taken: `${day.charAt(0).toUpperCase()}${day.slice(1)}`
-			};
-		}),
+		timeline: timeline(
+			allPhotos ? photos : photos.slice(0, PHOTO_LIMIT),
+			plant.coverChosen ? plant.coverPhotoId : null,
+			zone,
+			today
+		),
+		photoCount: photos.length,
+		morePhotos: !allPhotos && photos.length > PHOTO_LIMIT,
 		/** Limits for the date fields: care can't be logged in the future, nor snoozed too far. */
 		latest: `${today}T23:59`,
 		noteLimit: MAX_NOTE_LENGTH,
@@ -123,29 +156,81 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 	};
 };
 
+/** A photo as the timeline shows it. */
+interface TimelinePhoto {
+	id: string;
+	caption: string | null;
+	/** The day it was taken: `Today`, `Mon 17 Nov`, `3 May 2025`. */
+	taken: string;
+	/** Whether it was chosen as the plant's cover (D42). */
+	cover: boolean;
+}
+
+/**
+ * A plant's photos by the month they were taken in, in the home's time zone, the latest first,
+ * each with the day it was taken and whether it's the cover chosen for the plant (D39).
+ */
+function timeline(photos: Photo[], chosenCoverId: string | null, zone: string, today: string) {
+	const months: { month: string; photos: TimelinePhoto[] }[] = [];
+	for (const photo of photos) {
+		const date = calendarDate(photo.takenAt, zone);
+		const month = formatMonth(date);
+		if (months.at(-1)?.month !== month) months.push({ month, photos: [] });
+		months.at(-1)?.photos.push({
+			id: photo.id,
+			caption: photo.caption,
+			taken: dayLabel(date, today),
+			cover: photo.id === chosenCoverId
+		});
+	}
+	return months;
+}
+
 /** How care just logged or removed is described: "Watered, today at 09:14". */
 function describe(event: { type: string; checkedTask: string | null; doneAt: Date }, home: Home) {
 	return `${careEventName(event.type, event.checkedTask)}, ${formatMoment(event.doneAt, home.timeZone, new Date(), 'sentence')}`;
 }
 
 export const actions = {
-	/** Logs care: a schedule's Done and "Not needed" buttons, and the Log care form. */
+	/**
+	 * Logs care: a schedule's Done and "Not needed" buttons, and the Log other care form, which
+	 * can send a photo with it (D41).
+	 */
 	log: async ({ locals, params, request }) => {
 		const { user, home } = requireHome(locals, 'care:log');
 		const plant = plantIn(home, params.plantId);
-		const values = textFields(await request.formData(), careInput.keyof().options);
+		const form = await readForm(request);
+		if (!form) {
+			const errors = { photo: PHOTO_PROBLEMS['too-big-for-server'] };
+			return fail(413, { log: { values: { type: '', doneAt: '', note: '' }, errors } });
+		}
+		const values = textFields(form, careInput.keyof().options);
 		const parsed = careInput.safeParse(values);
 		if (!parsed.success) {
 			return fail(400, { log: { values, errors: fieldErrors(parsed.error) } });
 		}
 
-		const result = logCare(home.id, user.id, plant.id, values);
-		if (!result.ok && result.reason === 'not-found') error(404, 'Not found');
+		const photo = await photoBytes(form);
+		if (photo) requirePermission(user, home.id, 'photo:add');
+		const result = photo
+			? await logCareWithPhoto(
+					home.id,
+					user.id,
+					plant.id,
+					{ ...values, takenAt: textField(form, 'takenAt') },
+					photo
+				)
+			: logCare(home.id, user.id, plant.id, values);
 		if (!result.ok) {
-			const errors = { doneAt: 'That time is still to come. Choose one that has passed.' };
+			if (result.reason === 'not-found') error(404, 'Not found');
+			const errors =
+				result.reason === 'in-the-future'
+					? { doneAt: 'That time is still to come. Choose one that has passed.' }
+					: { photo: PHOTO_PROBLEMS[result.reason] };
 			return fail(400, { log: { values, errors } });
 		}
-		return { logged: { id: result.event.id, message: `Logged: ${describe(result.event, home)}.` } };
+		const message = `Logged: ${describe(result.event, home)}${photo ? ', with a photo' : ''}.`;
+		return { logged: { id: result.event.id, message } };
 	},
 
 	/** Undoes care the user logged: just now, or from the history. */
@@ -190,12 +275,8 @@ export const actions = {
 	addPhoto: async ({ locals, params, request }) => {
 		const { user, home } = requireHome(locals, 'photo:add');
 		const plant = plantIn(home, params.plantId);
-		let form: FormData;
-		try {
-			form = await request.formData();
-		} catch (problem) {
-			// The Node adapter stops reading a request bigger than BODY_SIZE_LIMIT with a 413.
-			if ((problem as { status?: unknown }).status !== 413) throw problem;
+		const form = await readForm(request);
+		if (!form) {
 			const errors = { photo: PHOTO_PROBLEMS['too-big-for-server'] };
 			return fail(413, { photo: { values: { caption: '' }, errors } });
 		}
@@ -205,12 +286,11 @@ export const actions = {
 		if (!parsed.success) {
 			return fail(400, { photo: { values, errors: fieldErrors(parsed.error) } });
 		}
-		const file = form.get('photo');
-		if (!(file instanceof File) || file.size === 0) {
+		const bytes = await photoBytes(form);
+		if (!bytes) {
 			return fail(400, { photo: { values, errors: { photo: PHOTO_PROBLEMS.none } } });
 		}
 
-		const bytes = new Uint8Array(await file.arrayBuffer());
 		const result = await addPhoto(home.id, user.id, plant.id, values, bytes);
 		if (!result.ok) {
 			if (result.reason === 'not-found') error(404, 'Not found');

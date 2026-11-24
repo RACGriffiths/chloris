@@ -1,18 +1,21 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import {
 	addPlant,
 	addRoom,
+	addSchedule,
 	createInvite,
 	joinWithNewAccount,
+	londonDate,
+	logOtherCare,
 	newOwner,
 	newPhone,
 	post
 } from './helpers';
 
 /**
- * Adding and viewing photos on a plant's page (D35 to D38). Homes made by `newOwner()` are in
- * Europe/London.
+ * Adding photos, the timeline on a plant's page, each photo's own page, cover photos and photos
+ * logged with care (D35 to D42). Homes made by `newOwner()` are in Europe/London.
  */
 
 /**
@@ -32,8 +35,22 @@ function phonePhoto(): Promise<Buffer> {
 		.toBuffer();
 }
 
+/**
+ * A small photo taken at `taken`, as EXIF writes it (`2025:05:03 14:22:10`), with no offset, so
+ * it's read in the home's time zone.
+ */
+function datedPhoto(taken: string, background = '#3a7d44') {
+	return sharp({ create: { width: 800, height: 600, channels: 3, background } })
+		.jpeg()
+		.withExif({ IFD2: { DateTimeOriginal: taken } })
+		.toBuffer()
+		.then((buffer) => ({ name: 'photo.jpg', mimeType: 'image/jpeg', buffer }));
+}
+
 const photosSection = (page: Page) => page.getByRole('region', { name: 'Photos', exact: true });
 const photoList = (page: Page) => photosSection(page).getByRole('list');
+/** The thumbnails in the timeline, the latest first. */
+const thumbnails = (page: Page) => photosSection(page).getByRole('img');
 
 /** A home with a plant called Fern, on whose page the owner ends up. */
 async function ownerWithFern(page: Page, homeName: string) {
@@ -51,15 +68,18 @@ async function addPhoto(page: Page, file: { name: string; mimeType: string; buff
 	await page.getByRole('button', { name: 'Add photo' }).click();
 }
 
-/** The id of the photo whose thumbnail is listed at `index`. */
-async function photoId(page: Page, index = 0): Promise<string> {
+/** The id of the photo an image shows, from its `src`. */
+async function shownPhoto(page: Page, image: Locator): Promise<string> {
 	// Server-rendered links are relative to the page, such as `../photos/<id>/thumb`.
-	const src = await photoList(page).getByRole('img').nth(index).getAttribute('src');
+	const src = await image.getAttribute('src');
 	const path = new URL(src ?? '', page.url()).pathname;
 	const id = /^\/photos\/([\w-]+)\/thumb$/.exec(path)?.[1];
 	if (!id) throw new Error(`No photo id in ${src}`);
 	return id;
 }
+
+/** The id of the photo whose thumbnail is listed at `index` in the timeline. */
+const photoId = (page: Page, index = 0) => shownPhoto(page, thumbnails(page).nth(index));
 
 /**
  * Has the page keep a copy of the photo it sends, since Playwright can't read a request body
@@ -199,6 +219,203 @@ test('only members see photos, and viewers cannot add them', async ({
 	expect((await page.request.get(`/photos/${id}/original`)).status()).toBe(404);
 });
 
+/** On a photo's page: waits for it, then reads its place in the timeline, such as `2 of 3`. */
+async function expectPhotoPage(page: Page, position: string) {
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Photo of Fern');
+	await expect(page.getByRole('navigation', { name: 'Photos of Fern' })).toContainText(position);
+}
+
+/** From a plant's page: logs care with a photo through Log other care. */
+async function logCareWithPhoto(
+	page: Page,
+	type: string,
+	file: { name: string; mimeType: string; buffer: Buffer }
+) {
+	await page.getByText('Log other care').click();
+	await page.getByLabel('What you did').selectOption({ label: type });
+	await page.getByLabel('Photo (optional)').setInputFiles(file);
+	await page.getByRole('button', { name: 'Log care' }).click();
+}
+
+test('the timeline groups photos by month, and each opens a page of its own', async ({ page }) => {
+	await ownerWithFern(page, 'Timeline flat');
+	for (const [count, taken] of [
+		[1, '2025:05:03 10:00:00'],
+		[2, '2025:06:02 10:00:00'],
+		[3, '2025:05:20 10:00:00']
+	] as const) {
+		await addPhoto(page, await datedPhoto(taken));
+		await expect(thumbnails(page)).toHaveCount(count);
+	}
+
+	// By when each was taken, not when it was added: the latest month first.
+	const months = photosSection(page).getByRole('heading', { level: 3 });
+	await expect(months).toHaveText(['June 2025', 'May 2025']);
+	await expect(page.getByRole('list', { name: 'Photos from June 2025' })).toContainText(
+		'2 Jun 2025'
+	);
+	await expect(
+		page.getByRole('list', { name: 'Photos from May 2025' }).getByRole('img')
+	).toHaveCount(2);
+	await expect(photosSection(page)).toContainText('3 photos');
+
+	// Each opens its own page, from which the older and newer ones are a tap away.
+	await thumbnails(page).first().click();
+	await expectPhotoPage(page, '1 of 3');
+	await expect(page.getByRole('definition').first()).toHaveText('2 Jun 2025 at 10:00');
+	await expect(page.getByRole('link', { name: 'Newer' })).toHaveCount(0);
+	await page.getByRole('link', { name: 'Older' }).click();
+	await expectPhotoPage(page, '2 of 3');
+	await page.getByRole('link', { name: 'Older' }).click();
+	await expectPhotoPage(page, '3 of 3');
+	await expect(page.getByRole('link', { name: 'Older' })).toHaveCount(0);
+
+	// Correcting the date and caption moves it in the timeline.
+	await page.getByText('Edit caption and date').click();
+	await page.getByLabel('Caption').fill('Repotted into terracotta');
+	await page.getByLabel('Taken', { exact: true }).fill('2025-06-10T09:00');
+	await page.getByRole('button', { name: 'Save' }).click();
+	await expect(page.getByRole('status')).toHaveText('Saved.');
+	await expectPhotoPage(page, '1 of 3');
+	await expect(page.locator('figcaption')).toHaveText('Repotted into terracotta');
+
+	await page.getByRole('link', { name: 'Fern', exact: true }).click();
+	await expect(months).toHaveText(['June 2025', 'May 2025']);
+	await expect(thumbnails(page).first()).toHaveAttribute('alt', 'Repotted into terracotta');
+	await expect(
+		page.getByRole('list', { name: 'Photos from June 2025' }).getByRole('img')
+	).toHaveCount(2);
+
+	// A time still to come is refused.
+	await thumbnails(page).first().click();
+	await expectPhotoPage(page, '1 of 3');
+	await page.getByText('Edit caption and date').click();
+	await page.getByLabel('Taken', { exact: true }).evaluate((input: HTMLInputElement) => {
+		input.removeAttribute('max');
+	});
+	await page.getByLabel('Taken', { exact: true }).fill(`${londonDate(2)}T09:00`);
+	await page.getByRole('button', { name: 'Save' }).click();
+	await expect(
+		page.getByText('That time is still to come. Choose one that has passed.')
+	).toBeVisible();
+});
+
+test('a chosen cover shows on the tiles, and deleting it brings back the latest photo', async ({
+	page
+}) => {
+	await ownerWithFern(page, 'Cover flat');
+	const plant = new URL(page.url()).pathname;
+	// Overdue, so Fern is on the Today view.
+	await addSchedule(page, 'Water', 7);
+	await logOtherCare(page, { type: 'Watered', doneAt: `${londonDate(-10)}T09:00` });
+	await expect(page.getByRole('status')).toContainText('Logged: Watered');
+	await addPhoto(page, await datedPhoto('2025:01:10 10:00:00', '#2f6b3a'));
+	await expect(thumbnails(page)).toHaveCount(1);
+	await addPhoto(page, await datedPhoto('2025:02:10 10:00:00', '#a3c585'));
+	await expect(thumbnails(page)).toHaveCount(2);
+	const [newer, older] = [await photoId(page, 0), await photoId(page, 1)];
+
+	const tiles = {
+		plant: () => page.locator('main').locator('img').first(),
+		plants: () => page.getByRole('link', { name: /Fern/ }).locator('img'),
+		today: () => page.getByRole('listitem', { name: 'Fern' }).locator('img')
+	};
+	async function expectCover(id: string) {
+		await page.goto(plant);
+		expect(await shownPhoto(page, tiles.plant())).toBe(id);
+		await page.goto('/plants');
+		expect(await shownPhoto(page, tiles.plants())).toBe(id);
+		await page.goto('/');
+		expect(await shownPhoto(page, tiles.today())).toBe(id);
+	}
+
+	// Until one is chosen, the latest.
+	await expectCover(newer);
+
+	await page.goto(`${plant}/photos/${older}`);
+	await expectPhotoPage(page, '2 of 2');
+	await page.getByRole('button', { name: 'Use as cover photo' }).click();
+	await expect(page.getByRole('status')).toHaveText("This is now Fern's cover photo.");
+	await expect(page.getByText("Fern's cover photo", { exact: true })).toBeVisible();
+	await expectCover(older);
+	await page.goto(plant);
+	await expect(thumbnails(page).nth(1).locator('..')).toContainText('Cover');
+
+	// Deleting it takes it off the timeline and its file away, and the latest is back.
+	await page.goto(`${plant}/photos/${older}`);
+	await page.getByText('Delete photo', { exact: true }).click();
+	await page.getByRole('button', { name: 'Delete this photo' }).click();
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Fern');
+	await expect(thumbnails(page)).toHaveCount(1);
+	expect((await page.request.get(`/photos/${older}/thumb`)).status()).toBe(404);
+	expect((await page.request.get(`${plant}/photos/${older}`)).status()).toBe(404);
+	await expectCover(newer);
+});
+
+test('care logged with a photo shows it in the history and on the timeline', async ({ page }) => {
+	await ownerWithFern(page, 'Care photo flat');
+
+	await logCareWithPhoto(page, 'Repotted', await datedPhoto('2025:05:03 14:22:10'));
+
+	await expect(page.getByRole('status')).toContainText(
+		/^Logged: Repotted, today at \d\d:\d\d, with a photo\./
+	);
+	await expect(thumbnails(page)).toHaveCount(1);
+	await expect(photosSection(page)).toContainText('3 May 2025');
+	await page.getByRole('link', { name: 'Photo: Repotted' }).click();
+	await expectPhotoPage(page, '1 of 1');
+	await expect(page.getByRole('definition').last()).toHaveText(/^Repotted, today at \d\d:\d\d$/);
+
+	// Undoing the care keeps the photo.
+	await page.getByRole('link', { name: 'Fern', exact: true }).click();
+	await page.getByText('Remove', { exact: true }).click();
+	await page.getByRole('button', { name: 'Remove from history' }).click();
+	await expect(page.getByRole('status')).toContainText('Removed: Repotted');
+	await expect(thumbnails(page)).toHaveCount(1);
+});
+
+test("a carer can change anyone's photos, and a viewer can only look", async ({
+	page,
+	browser
+}, testInfo) => {
+	await ownerWithFern(page, 'Shared timeline flat');
+	const plant = new URL(page.url()).pathname;
+	await addPhoto(page, await datedPhoto('2025:05:03 10:00:00'));
+	await expect(thumbnails(page)).toHaveCount(1);
+	const photoPage = `${plant}/photos/${await photoId(page)}`;
+
+	await page.goto('/');
+	const viewerLink = await createInvite(page, 'Viewer');
+	const viewer = await newPhone(browser, testInfo);
+	await joinWithNewAccount(viewer, viewerLink, 'Shared timeline flat', 'Vic');
+	await viewer.goto(photoPage);
+	await expect(viewer.getByRole('heading', { name: 'Photo of Fern' })).toBeVisible();
+	await expect(viewer.getByRole('button', { name: 'Use as cover photo' })).toHaveCount(0);
+	await expect(viewer.getByText('Edit caption and date')).toHaveCount(0);
+	await expect(viewer.getByText('Delete photo', { exact: true })).toHaveCount(0);
+	const form = { use: 'this', caption: 'Mine', takenAt: '2025-01-01T09:00' };
+	for (const action of ['cover', 'save', 'delete']) {
+		expect(await post(viewer, `${photoPage}?/${action}`, form), action).toBe(403);
+	}
+
+	// The owner of another home learns nothing of it.
+	const outsider = await newPhone(browser, testInfo);
+	await newOwner(outsider, 'Other timeline flat');
+	expect((await outsider.request.get(photoPage)).status()).toBe(404);
+	expect(await post(outsider, `${photoPage}?/delete`, {})).toBe(404);
+
+	await page.goto('/');
+	const carerLink = await createInvite(page, 'Carer');
+	const carer = await newPhone(browser, testInfo);
+	await joinWithNewAccount(carer, carerLink, 'Shared timeline flat', 'Cass');
+	await carer.goto(photoPage);
+	await expect(carer.getByText('Added by')).toBeVisible();
+	await carer.getByText('Delete photo', { exact: true }).click();
+	await carer.getByRole('button', { name: 'Delete this photo' }).click();
+	await expect(carer.getByRole('heading', { level: 1 })).toHaveText('Fern');
+	await expect(photosSection(carer)).toContainText('No photos yet.');
+});
+
 test.describe('without JavaScript', () => {
 	test.use({ javaScriptEnabled: false });
 
@@ -231,5 +448,35 @@ test.describe('without JavaScript', () => {
 
 		await expect(photosSection(page)).toContainText('Choose a photo in JPEG, PNG or WebP format.');
 		await expect(page.getByLabel('Caption')).toHaveValue('Not really a photo');
+	});
+
+	test('care can be logged with a photo, and the photo chosen, changed and deleted', async ({
+		page
+	}) => {
+		await ownerWithFern(page, 'Plain timeline flat');
+
+		await logCareWithPhoto(page, 'Repotted', await datedPhoto('2025:05:03 14:22:10'));
+		await expect(page.getByRole('status')).toContainText('with a photo.');
+
+		await page.getByRole('link', { name: 'Photo: Repotted' }).click();
+		await expectPhotoPage(page, '1 of 1');
+		await expect(page.getByRole('definition').first()).toHaveText('3 May 2025 at 14:22');
+
+		await page.getByRole('button', { name: 'Use as cover photo' }).click();
+		await expect(page.getByRole('status')).toHaveText("This is now Fern's cover photo.");
+
+		await page.getByText('Edit caption and date').click();
+		await page.getByLabel('Caption').fill('Fresh soil');
+		await page.getByRole('button', { name: 'Save' }).click();
+		await expect(page.getByRole('status')).toHaveText('Saved.');
+		await expect(page.locator('figcaption')).toHaveText('Fresh soil');
+
+		await page.getByText('Delete photo', { exact: true }).click();
+		await page.getByRole('button', { name: 'Delete this photo' }).click();
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Fern');
+		await expect(photosSection(page)).toContainText('No photos yet.');
+		// The care stays, without its photo.
+		await expect(page.getByRole('region', { name: 'Care history' })).toContainText('Repotted');
+		await expect(page.getByRole('link', { name: 'Photo: Repotted' })).toHaveCount(0);
 	});
 });

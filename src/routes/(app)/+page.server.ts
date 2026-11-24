@@ -41,16 +41,19 @@ export const load: PageServerLoad = ({ locals }) => {
 	const today = calendarDate(now, zone);
 	const tasks = listTasks(home.id, now);
 	const next = tasks.find((task) => task.daysAway > 0);
+	const plants = listPlants(home.id);
+	const covers = new Map(plants.map((plant) => [plant.id, plant.coverPhotoId]));
 
 	return {
 		name: user.name,
 		home: { name: home.name },
 		date: formatLongDate(today),
-		plantCount: listPlants(home.id).length,
+		plantCount: plants.length,
 		taskCount: tasks.length,
 		rooms: byRoom(
 			tasks.filter((task) => task.daysAway <= 0),
-			today
+			today,
+			covers
 		),
 		/** The next task to fall due, for when nothing is due today. */
 		next: next && {
@@ -78,10 +81,10 @@ export const load: PageServerLoad = ({ locals }) => {
 
 /**
  * The due tasks grouped by room and then by plant, both in name order, each plant's tasks in the
- * order of `TASKS`. A task due on two or more plants in a room can be logged on all of them at
- * once.
+ * order of `TASKS`, with each plant's cover photo from `covers`. A task due on two or more plants
+ * in a room can be logged on all of them at once.
  */
-function byRoom(due: HomeTask[], today: string) {
+function byRoom(due: HomeTask[], today: string, covers: Map<string, string | null>) {
 	type Plant = { id: string; name: string; tasks: HomeTask[] };
 	type Room = { id: string; name: string; plants: Map<string, Plant> };
 	const rooms = new Map<string, Room>();
@@ -112,6 +115,7 @@ function byRoom(due: HomeTask[], today: string) {
 			plants: plants.map((plant) => ({
 				id: plant.id,
 				name: plant.name,
+				photoId: covers.get(plant.id) ?? null,
 				tasks: plant.tasks
 					.sort((a, b) => TASKS.indexOf(a.task) - TASKS.indexOf(b.task))
 					.map((task) => ({

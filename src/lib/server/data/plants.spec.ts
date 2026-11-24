@@ -3,14 +3,16 @@ import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getConnection } from '../db';
 import { plant } from '../db/schema';
-import { insertUser, useTestDatabase } from '../testing';
+import { insertUser, markPhotoDeleted, testJpeg, useTestDatabase } from '../testing';
 import { createHome } from './homes';
+import { addPhoto, deletePhoto, type Photo } from './photos';
 import {
 	MAX_TAGS,
 	createPlant,
 	getPlant,
 	listPlants,
 	parseTags,
+	setCoverPhoto,
 	updatePlant,
 	type Plant,
 	type PlantInput
@@ -20,13 +22,14 @@ import { createRoom, type Room } from './rooms';
 useTestDatabase();
 
 /** Two homes with an owner and a room each. */
+let alice: string;
 let aliceHome: string;
 let bobHome: string;
 let kitchen: Room;
 let study: Room;
 
 beforeEach(() => {
-	const alice = insertUser('alice@example.com', { canCreateHome: true });
+	alice = insertUser('alice@example.com', { canCreateHome: true });
 	const bob = insertUser('bob@example.com', { canCreateHome: true });
 	aliceHome = createHome(alice, { name: "Alice's flat", timeZone: 'Europe/London' }).id;
 	bobHome = createHome(bob, { name: "Bob's house", timeZone: 'Europe/Paris' }).id;
@@ -48,12 +51,13 @@ function addPlant(homeId: string, input: PlantInput): Plant {
 }
 
 /** How the Plants page lists a plant. */
-const summary = ({ id, nickname, species, roomId, tags }: Plant) => ({
+const summary = ({ id, nickname, species, roomId, tags, coverPhotoId }: Plant) => ({
 	id,
 	nickname,
 	species,
 	roomId,
-	tags
+	tags,
+	coverPhotoId
 });
 
 /** The form messages a ZodError carries, or `[]` if `run` doesn't throw one. */
@@ -264,5 +268,103 @@ describe('updatePlant', () => {
 
 		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
 		expect(listPlants(bobHome)).toEqual([]);
+	});
+});
+
+describe('cover photos', () => {
+	let jpeg: Buffer;
+	let fern: Plant;
+
+	beforeEach(async () => {
+		jpeg = await testJpeg();
+		fern = addPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
+	});
+
+	/** Adds a photo of one of Alice's plants, taken at `takenAt` in London. */
+	async function photo(plantId: string, takenAt: string): Promise<Photo> {
+		const result = await addPhoto(aliceHome, alice, plantId, { takenAt }, jpeg);
+		if (!result.ok) throw new Error(`Photo refused: ${result.reason}`);
+		return result.photo;
+	}
+
+	/** The photo one of Alice's plants shows, and whether it was chosen. */
+	const cover = (plantId: string) => {
+		const found = getPlant(aliceHome, plantId);
+		return { id: found?.coverPhotoId, chosen: found?.coverChosen };
+	};
+
+	it('shows the latest photo until one is chosen, then the chosen one', async () => {
+		expect(cover(fern.id)).toEqual({ id: null, chosen: false });
+		const older = await photo(fern.id, '2025-01-01T12:00:00');
+		const newer = await photo(fern.id, '2025-06-01T12:00:00');
+		expect(cover(fern.id)).toEqual({ id: newer.id, chosen: false });
+		expect(listPlants(aliceHome)[0].coverPhotoId).toBe(newer.id);
+
+		expect(setCoverPhoto(aliceHome, fern.id, older.id)).toBe(true);
+
+		expect(cover(fern.id)).toEqual({ id: older.id, chosen: true });
+		expect(listPlants(aliceHome)[0].coverPhotoId).toBe(older.id);
+
+		// A newer photo doesn't take over from a chosen cover.
+		await photo(fern.id, '2025-07-01T12:00:00');
+		expect(cover(fern.id)).toEqual({ id: older.id, chosen: true });
+	});
+
+	it('goes back to the latest photo when asked to', async () => {
+		const older = await photo(fern.id, '2025-01-01T12:00:00');
+		const newer = await photo(fern.id, '2025-06-01T12:00:00');
+		setCoverPhoto(aliceHome, fern.id, older.id);
+
+		expect(setCoverPhoto(aliceHome, fern.id, null)).toBe(true);
+
+		expect(cover(fern.id)).toEqual({ id: newer.id, chosen: false });
+	});
+
+	it('goes back to the latest photo when the cover is deleted', async () => {
+		const older = await photo(fern.id, '2025-01-01T12:00:00');
+		const newer = await photo(fern.id, '2025-06-01T12:00:00');
+		setCoverPhoto(aliceHome, fern.id, older.id);
+
+		deletePhoto(aliceHome, fern.id, older.id, { userId: alice, anyPhoto: true });
+		expect(cover(fern.id)).toEqual({ id: newer.id, chosen: false });
+
+		// Even a photo marked deleted some other way is never shown.
+		setCoverPhoto(aliceHome, fern.id, newer.id);
+		markPhotoDeleted(newer.id);
+		expect(cover(fern.id)).toEqual({ id: null, chosen: false });
+	});
+
+	it('keeps the cover when the plant is changed', async () => {
+		const only = await photo(fern.id, '2025-01-01T12:00:00');
+		setCoverPhoto(aliceHome, fern.id, only.id);
+
+		const result = updatePlant(aliceHome, fern.id, { nickname: 'Maidenhair', roomId: kitchen.id });
+
+		expect(result).toMatchObject({ ok: true, plant: { coverPhotoId: only.id, coverChosen: true } });
+	});
+
+	it("won't choose another plant's photo, or a deleted one, and changes nothing", async () => {
+		const ivy = addPlant(aliceHome, { nickname: 'Ivy', roomId: kitchen.id });
+		const ivys = await photo(ivy.id, '2025-01-01T12:00:00');
+		const ferns = await photo(fern.id, '2025-01-01T12:00:00');
+		const deleted = await photo(fern.id, '2025-02-01T12:00:00');
+		markPhotoDeleted(deleted.id);
+
+		expect(setCoverPhoto(aliceHome, fern.id, ivys.id)).toBe(false);
+		expect(setCoverPhoto(aliceHome, fern.id, deleted.id)).toBe(false);
+		expect(setCoverPhoto(aliceHome, fern.id, 'no-such-photo')).toBe(false);
+
+		expect(cover(fern.id)).toEqual({ id: ferns.id, chosen: false });
+	});
+
+	it("can't choose the cover of another home's plant, or use another home's photo", async () => {
+		const ferns = await photo(fern.id, '2025-01-01T12:00:00');
+		const cactus = addPlant(bobHome, { nickname: 'Cactus', roomId: study.id });
+
+		expect(setCoverPhoto(bobHome, fern.id, ferns.id)).toBe(false);
+		expect(setCoverPhoto(bobHome, cactus.id, ferns.id)).toBe(false);
+
+		expect(cover(fern.id)).toEqual({ id: ferns.id, chosen: false });
+		expect(getPlant(bobHome, cactus.id)).toMatchObject({ coverPhotoId: null, coverChosen: false });
 	});
 });
