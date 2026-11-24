@@ -55,3 +55,33 @@ export async function newPhone(
 	const context = await browser.newContext({ ...testInfo.project.use, ...options });
 	return context.newPage();
 }
+
+/** Signs in a new owner with the command-line tool's link and has them create a home. */
+export async function newOwner(page: Page, homeName: string) {
+	await useLink(page, signInLink(newEmail('owner')));
+	await page.getByRole('link', { name: 'Not now' }).click();
+	await createHome(page, homeName);
+}
+
+/** From the home page: makes an invite for `role` and returns its link. */
+export async function createInvite(page: Page, role: 'Owner' | 'Carer' | 'Viewer') {
+	await page.getByRole('link', { name: 'Invite someone' }).click();
+	await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
+	await page.getByRole('radio', { name: role }).check();
+	await page.getByRole('button', { name: 'Create invite link' }).click();
+	const link = await page.getByLabel('Invite link').inputValue();
+	expect(link).toMatch(/^http:\/\/localhost:\d+\/invite\/[\w-]{43}$/);
+	return link;
+}
+
+export async function joinWithNewAccount(page: Page, link: string, homeName: string, name: string) {
+	await page.goto(link);
+	await expect(page.getByRole('heading', { name: `Join ${homeName}` })).toBeVisible();
+	await page.getByLabel('Your name').fill(name);
+	await page.getByLabel('Email').fill(newEmail(name.toLowerCase()));
+	await page.getByRole('button', { name: `Join ${homeName}` }).click();
+	// As after a first sign-in, a passkey is offered.
+	await expect(page.getByRole('heading', { name: `Welcome, ${name}` })).toBeVisible();
+	await page.getByRole('link', { name: 'Not now' }).click();
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText(homeName);
+}
