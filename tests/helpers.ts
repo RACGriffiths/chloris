@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { expect, type Browser, type Page, type TestInfo } from '@playwright/test';
 import { origin, serverEnv } from './server-env';
 
@@ -13,9 +14,12 @@ export function signInLink(email: string): string {
 	return url;
 }
 
-let accounts = 0;
-/** A new address for each test, since the tests share one database. */
-export const newEmail = (name: string) => `${name}-${Date.now()}-${++accounts}@example.com`;
+/**
+ * A new address for each test, since the tests share one database. Random, because tests run in
+ * several workers at once: a time and a counter can repeat in two of them, signing two tests in
+ * to one account.
+ */
+export const newEmail = (name: string) => `${name}-${randomUUID()}@example.com`;
 
 /** A passkey authenticator built into the browser, which always says yes. */
 export async function addVirtualAuthenticator(page: Page) {
