@@ -10,6 +10,7 @@ import * as schema from '../db/schema';
 import { ac, roles } from '../permissions/roles';
 import { auditHook } from './audit';
 import { invites } from './invites';
+import { forgetUnprovenPasskeys } from './unproven';
 
 /**
  * Sign-in with BetterAuth: passkeys, with one-time sign-in links as the fallback, and no
@@ -76,6 +77,11 @@ export function createAuth({ origin, secret, db, sendSignInLink, getRequestEvent
 		rateLimit: { enabled: false },
 		// Records sign-ins and new passkeys in the audit log (D57).
 		hooks: { after: auditHook(CLIENT_ADDRESS_HEADER) },
+		// A sign-in link proving an address for the first time also removes the passkeys added
+		// before, which BetterAuth's own clean-up leaves alone (D50).
+		databaseHooks: {
+			user: { update: { after: forgetUnprovenPasskeys(CLIENT_ADDRESS_HEADER) } }
+		},
 		advanced: {
 			cookiePrefix: 'chloris',
 			ipAddress: { ipAddressHeaders: [CLIENT_ADDRESS_HEADER] }

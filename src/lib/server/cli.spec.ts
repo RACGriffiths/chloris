@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { USAGE, main } from './cli';
+import { USAGE, main, printable } from './cli';
+import { recordServerEvent } from './data/server-log';
+import { closeDatabase, openExistingDatabase } from './db';
 import { TEST_ORIGIN, TEST_SECRET } from './testing';
 
 let root: string;
@@ -179,10 +181,39 @@ describe('log', () => {
 		expect(logged.join('\n')).toMatch(/^.*existing account.*\n\nThe latest 1; use --limit/);
 	});
 
+	it("shows control characters in what people typed as escapes, so they can't rewrite the terminal", async () => {
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		// A passkey's name is whatever the browser sent. This one would wipe its own line and
+		// write a harmless-looking one in its place.
+		openExistingDatabase(env.DATA_DIR);
+		recordServerEvent(
+			{ ipAddress: '203.0.113.7' },
+			{ action: 'passkey-added', detail: { name: 'Phone\x1b[2K\rNothing to see\u202e' } }
+		);
+		closeDatabase();
+		logged = [];
+
+		expect(await main(['log'], env, out)).toBe(0);
+
+		const printed = logged.join('\n');
+		expect(printed.replaceAll('\n', '')).not.toMatch(/[\p{Cc}\u202e]/u);
+		expect(printed).toContain('added a passkey (Phone\\x1b[2K\\x0dNothing to see\\u202e)');
+	});
+
 	it('explains how to use it when the arguments are wrong', async () => {
 		expect(await main(['log', 'now'], env, out)).toBe(2);
 		expect(await main(['log', '--limit', '0'], env, out)).toBe(2);
 		expect(await main(['log', '--keep', '3'], env, out)).toBe(2);
 		expect(errors).toHaveLength(3);
+	});
+});
+
+describe('printable', () => {
+	it('leaves ordinary text alone, including accents and emoji', () => {
+		expect(printable('Zoë’s Pixel 👩‍👩‍👧 · 203.0.113.7')).toBe('Zoë’s Pixel 👩‍👩‍👧 · 203.0.113.7');
+	});
+
+	it('escapes control characters and those that reverse text', () => {
+		expect(printable('a\x1b]0;title\x07b\nc\u2066d')).toBe('a\\x1b]0;title\\x07b\\x0ac\\u2066d');
 	});
 });

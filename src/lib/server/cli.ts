@@ -297,11 +297,34 @@ function printLog(limit: number, out: Output): number {
 		const from = [event.ipAddress, event.userAgent && describeUserAgent(event.userAgent)]
 			.filter(Boolean)
 			.join(', ');
-		return `${when}  ${describeServerEntry(event, event.userEmail)}${from ? ` (${from})` : ''}`;
+		return printable(
+			`${when}  ${describeServerEntry(event, event.userEmail)}${from ? ` (${from})` : ''}`
+		);
 	});
 	if (events.length === limit) lines.push('', `The latest ${limit}; use --limit to see more.`);
 	out.log(lines.join('\n'));
 	return 0;
+}
+
+/**
+ * Characters a terminal would act on rather than show: control characters, which can move the
+ * cursor, rewrite earlier lines or change the window's title, and the ones that reverse the
+ * direction of text.
+ */
+const UNPRINTABLE = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu;
+
+/**
+ * Text for the terminal with those characters shown as escapes, such as `\x1b`. The server's log
+ * holds what people typed, such as a passkey's name, so someone could otherwise hide or forge
+ * lines in what the person running the server reads.
+ */
+export function printable(text: string): string {
+	return text.replace(UNPRINTABLE, (char) => {
+		const code = char.codePointAt(0) ?? 0;
+		return code > 0xff
+			? `\\u${code.toString(16).padStart(4, '0')}`
+			: `\\x${code.toString(16).padStart(2, '0')}`;
+	});
 }
 
 /** A number option's value, or `undefined` if it wasn't given; `0` if it isn't a whole number. */

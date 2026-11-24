@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getConnection } from '../db';
+import { passkey } from '../db/schema';
 import { listAuditEvents } from '../data/audit';
 import { listServerEvents } from '../data/server-log';
 import { createHome } from '../data/homes';
-import { accountExists, mayCreateHome } from '../data/users';
+import { createInvite, joinWithNewAccount } from '../data/invites';
+import { accountExists, hasPasskey, mayCreateHome } from '../data/users';
 import { TEST_ORIGIN, TEST_SECRET, insertUser, useTestDatabase } from '../testing';
 import { signInLinkEmail } from './emails';
 import { CLIENT_ADDRESS_HEADER, SIGN_IN_LINK_MINUTES, createAuth, type SignInLink } from './index';
@@ -168,6 +171,81 @@ describe('sessions', () => {
 		});
 
 		expect(headers.get('set-cookie')).toMatch(/^__Secure-chloris\.session_token=[^;]+;.*Secure/i);
+	});
+});
+
+/** Adds a passkey to an account directly, as registering one in the browser would. */
+function insertPasskey(userId: string, name: string): string {
+	const id = randomUUID();
+	getConnection()
+		.db.insert(passkey)
+		.values({
+			id,
+			name,
+			userId,
+			publicKey: 'public-key',
+			credentialID: randomUUID(),
+			counter: 0,
+			deviceType: 'singleDevice',
+			backedUp: false
+		})
+		.run();
+	return id;
+}
+
+describe('an address proven by a sign-in link (D50)', () => {
+	/**
+	 * Someone with an invite link joins with an address that isn't theirs, so the account's
+	 * address is unproven, and adds a passkey.
+	 */
+	function squat(email: string) {
+		const owner = insertUser('owner@example.com', { canCreateHome: true });
+		const home = createHome(owner, { name: 'Flat', timeZone: 'Europe/London' });
+		const { token } = createInvite(home.id, owner, { role: 'viewer' });
+		const joined = joinWithNewAccount(token, { name: 'Not Alice', email });
+		if (!joined.ok) throw new Error(`Could not join: ${joined.reason}`);
+		insertPasskey(joined.userId, 'Squatter’s phone');
+		return { home, userId: joined.userId };
+	}
+
+	it('removes the passkeys added before, so they no longer sign in to the account', async () => {
+		const { home, userId } = squat('alice@example.com');
+		expect(hasPasskey(userId)).toBe(true);
+
+		// Later the real Alice is given a link by the command-line tool, to start a home of her own.
+		const link = await commandLineLink('alice@example.com', { allowHomeCreation: true });
+		const result = await useLink(link.url);
+
+		expect(result.user).toMatchObject({ id: userId, emailVerified: true });
+		expect(hasPasskey(userId)).toBe(false);
+		// The home the account joined sees the passkey go, then the sign-in.
+		expect(listAuditEvents(home.id)).toMatchObject([
+			{ action: 'sign-in', detail: { method: 'link' } },
+			{ action: 'passkey-removed', detail: { name: 'Squatter’s phone', unproven: true } }
+		]);
+	});
+
+	it('removes them when an emailed sign-in link proves the address too', async () => {
+		const { userId } = squat('alice@example.com');
+		const { auth, sent } = testAuth();
+		await auth.api.signInMagicLink({
+			body: { email: 'alice@example.com' },
+			headers: new Headers()
+		});
+
+		await useLink(sent[0].url);
+
+		expect(hasPasskey(userId)).toBe(false);
+	});
+
+	it('keeps the passkeys of an account whose address was already proven', async () => {
+		const owner = insertUser('owner@example.com');
+		insertPasskey(owner, 'Owner’s phone');
+		const link = await commandLineLink('owner@example.com');
+
+		await useLink(link.url);
+
+		expect(hasPasskey(owner)).toBe(true);
 	});
 });
 

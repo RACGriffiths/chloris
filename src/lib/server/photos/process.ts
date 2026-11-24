@@ -12,6 +12,26 @@ import { MAX_PHOTO_BYTES, MAX_PHOTO_PIXELS, PHOTO_SIZES, type PhotoSize } from '
 // Photos are processed one at a time and rarely, so there is nothing worth keeping in memory.
 sharp.cache(false);
 
+/**
+ * Runs the tasks given to it one at a time, each after the one before has finished, whether that
+ * one worked or not.
+ */
+export function oneAtATime(): <T>(task: () => Promise<T>) => Promise<T> {
+	let previous: Promise<unknown> = Promise.resolve();
+	return (task) => {
+		const run = previous.then(task);
+		previous = run.catch(() => undefined);
+		return run;
+	};
+}
+
+/**
+ * Decoding a photo can take a few hundred megabytes for a few seconds: a 100-megapixel PNG of
+ * 16-bit colour, which compresses to about a megabyte, peaks near 260 MB. Several at once, from
+ * one person or a few, could use up the memory of a small server, so uploads take turns.
+ */
+const inTurn = oneAtATime();
+
 /** JPEG quality for every size. mozjpeg makes files about a fifth smaller at the same quality. */
 const JPEG = { quality: 80, mozjpeg: true } as const;
 
@@ -81,6 +101,15 @@ export async function processPhoto(
 	if (format === 'heic') return refuse('heic');
 	if (!format) return refuse('unsupported');
 
+	return inTurn(() => decode(input, format, maxPixels));
+}
+
+/** Checks the size the header gives, then decodes the image and makes each stored size. */
+async function decode(
+	input: Uint8Array,
+	format: 'jpeg' | 'png' | 'webp',
+	maxPixels: number
+): Promise<ProcessResult> {
 	try {
 		// Only the file's header is read here, so it needs no limit on pixels yet.
 		const metadata = await sharp(input, { limitInputPixels: false }).metadata();

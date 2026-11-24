@@ -4,7 +4,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
-import { fileTimestamp } from './paths';
+import { PRIVATE_FOLDER, fileTimestamp } from './paths';
 
 export interface MigrationResult {
 	/** How many migrations were applied. */
@@ -62,7 +62,7 @@ export async function migrateWithBackup({
 
 	let backupFile: string | null = null;
 	if (hasTables(sqlite)) {
-		fs.mkdirSync(backupsDir, { recursive: true });
+		fs.mkdirSync(backupsDir, { recursive: true, mode: PRIVATE_FOLDER });
 		backupFile = path.join(backupsDir, `chloris-${fileTimestamp(now)}-before-migration.db`);
 		await sqlite.backup(backupFile);
 	}

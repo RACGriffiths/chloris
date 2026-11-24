@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { ConfigError } from '../config';
 import { MIGRATIONS_TABLE, migrateWithBackup, type MigrationResult } from './migrate';
-import { MIGRATIONS_DIR, backupsDir, databaseFile } from './paths';
+import { MIGRATIONS_DIR, PRIVATE_FOLDER, backupsDir, databaseFile } from './paths';
 import * as schema from './schema';
 
 export type Db = BetterSQLite3Database<typeof schema>;
@@ -46,7 +46,8 @@ export async function initDatabase(
 	migrationsFolder = path.resolve(MIGRATIONS_DIR)
 ): Promise<MigrationResult> {
 	closeDatabase();
-	fs.mkdirSync(dataDir, { recursive: true });
+	// Only this user may open a folder made here: the database holds every home's data.
+	fs.mkdirSync(dataDir, { recursive: true, mode: PRIVATE_FOLDER });
 	const opened = openDatabase(databaseFile(dataDir));
 	try {
 		const result = await migrateWithBackup({

@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_PHOTO_BYTES } from '../../photos';
 import { testJpeg } from '../testing';
-import { processPhoto, sniffFormat } from './process';
+import { oneAtATime, processPhoto, sniffFormat } from './process';
 
 const ascii = (text: string) => new TextEncoder().encode(text);
 
@@ -160,5 +160,61 @@ describe('sniffFormat', () => {
 		expect(sniffFormat(await base.clone().webp().toBuffer())).toBe('webp');
 		expect(sniffFormat(heic)).toBe('heic');
 		expect(sniffFormat(new Uint8Array())).toBeNull();
+	});
+});
+
+describe('oneAtATime', () => {
+	/** A task that starts when it's run and finishes when told to. */
+	function task(name: string, log: string[]) {
+		let finish: (ok: boolean) => void = () => {};
+		const run = () => {
+			log.push(`start ${name}`);
+			return new Promise<string>((resolve, reject) => {
+				finish = (ok) => {
+					log.push(`end ${name}`);
+					if (ok) resolve(name);
+					else reject(new Error(name));
+				};
+			});
+		};
+		return { run, finish: (ok = true) => finish(ok) };
+	}
+
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+	it('starts each task only once the one before has finished, even if it failed', async () => {
+		const log: string[] = [];
+		const inTurn = oneAtATime();
+		const [first, second, third] = ['first', 'second', 'third'].map((name) => task(name, log));
+
+		const results = [inTurn(first.run), inTurn(second.run), inTurn(third.run)];
+		await settle();
+		expect(log).toEqual(['start first']);
+
+		first.finish(false);
+		await settle();
+		second.finish();
+		await settle();
+		third.finish();
+
+		await expect(results[0]).rejects.toThrow('first');
+		await expect(results[1]).resolves.toBe('second');
+		await expect(results[2]).resolves.toBe('third');
+		expect(log).toEqual([
+			'start first',
+			'end first',
+			'start second',
+			'end second',
+			'start third',
+			'end third'
+		]);
+	});
+
+	it('lets photos sent together all be processed', async () => {
+		const photos = await Promise.all([testJpeg(), testJpeg({ width: 300, height: 200 })]);
+
+		const results = await Promise.all(photos.map((photo) => processPhoto(photo)));
+
+		expect(results.map((result) => result.ok)).toEqual([true, true]);
 	});
 });

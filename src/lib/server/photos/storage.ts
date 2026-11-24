@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { ConfigError } from '../config';
+import { PRIVATE_FOLDER } from '../db/paths';
 import { PHOTO_SIZES, type PhotoSize } from '../../photos';
 
 /**
@@ -20,7 +21,7 @@ let photosDir: string | undefined;
  * `ConfigError` otherwise.
  */
 export function initPhotoStorage(dir: string, { create }: { create: boolean }): void {
-	if (create) fs.mkdirSync(dir, { recursive: true });
+	if (create) fs.mkdirSync(dir, { recursive: true, mode: PRIVATE_FOLDER });
 	let stats: fs.Stats;
 	try {
 		stats = fs.statSync(dir);
