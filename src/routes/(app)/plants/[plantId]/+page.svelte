@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import Flower2Icon from '@lucide/svelte/icons/flower-2';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
@@ -43,15 +44,22 @@
 	const byTag = (tag: string) => resolve(`plants?${new URLSearchParams({ tag }).toString()}`);
 
 	let undoing = $state(false);
+	let restoring = $state(false);
 </script>
 
 <svelte:head>
 	<title>{plant.nickname} · Chloris</title>
 </svelte:head>
 
-<Button href={resolve('plants')} variant="ghost" size="sm" class="-ml-2.5">
+<!-- A plant in the Memorial leads back there rather than to the Plants list (D44). -->
+<Button
+	href={resolve(data.memorial ? 'plants/memorial' : 'plants')}
+	variant="ghost"
+	size="sm"
+	class="-ml-2.5"
+>
 	<ChevronLeftIcon />
-	Plants
+	{data.memorial ? 'Memorial' : 'Plants'}
 </Button>
 
 <div class="mt-3 flex items-start gap-4">
@@ -79,6 +87,69 @@
 		</Button>
 	{/if}
 </div>
+
+{#if data.memorial}
+	<!-- What happened to a plant in the Memorial, with Change and Restore (D43, D44). -->
+	<section class="mt-6 rounded-lg border bg-muted/40 p-4" aria-labelledby="memorial">
+		<div class="flex items-start gap-3">
+			<Flower2Icon class="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+			<div class="min-w-0 flex-1">
+				<h2 id="memorial" class="font-semibold">In the Memorial</h2>
+				<p class="mt-0.5 text-sm">
+					{data.memorial.status}{data.memorial.on ? ` on ${data.memorial.on}` : ''}.
+				</p>
+				{#if data.memorial.note}
+					<p class="mt-2 text-sm break-words whitespace-pre-line">{data.memorial.note}</p>
+				{/if}
+			</div>
+		</div>
+		{#if form?.error}
+			<p role="alert" class="mt-3 text-sm text-destructive">{form.error}</p>
+		{/if}
+		{#if data.canEdit}
+			<!-- `relative` places the confirmation, which opens under the buttons. -->
+			<div class="relative mt-4 grid grid-cols-2 gap-2">
+				<Button
+					href={resolve(`plants/${plant.id}/memorialise`)}
+					variant="outline"
+					class="h-10"
+					aria-label="Change {plant.nickname}'s Memorial entry"
+				>
+					Change
+				</Button>
+				<!-- Two taps to restore, so a stray one can't clear the note. -->
+				<details>
+					<!-- Styled like an outline button. -->
+					<summary
+						class="flex h-10 cursor-pointer list-none items-center justify-center rounded-lg border bg-background text-sm font-medium outline-none select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden"
+					>
+						Restore
+					</summary>
+					<form
+						method="POST"
+						action="?/restore"
+						class="absolute top-full right-0 left-0 z-10 mt-2 rounded-lg border bg-popover p-3 text-sm shadow-md"
+						use:enhance={() => {
+							restoring = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								restoring = false;
+							};
+						}}
+					>
+						<p>
+							{plant.nickname} will be back in Plants and Today, with its schedules. What happened and
+							the note will be cleared.
+						</p>
+						<Button type="submit" class="mt-3 h-10 w-full" disabled={restoring}>
+							Restore {plant.nickname}
+						</Button>
+					</form>
+				</details>
+			</div>
+		{/if}
+	</section>
+{/if}
 
 <dl class="mt-6 divide-y rounded-lg border text-sm">
 	<div class="flex justify-between gap-4 p-3">
@@ -112,88 +183,91 @@
 	</ul>
 {/if}
 
-<section class="mt-8" aria-labelledby="care">
-	<h2 id="care" class="text-lg font-semibold">Care</h2>
+<!-- A plant in the Memorial needs no care: its schedules are kept, but hidden (D44). -->
+{#if !data.memorial}
+	<section class="mt-8" aria-labelledby="care">
+		<h2 id="care" class="text-lg font-semibold">Care</h2>
 
-	<!-- What the last button did, with a way to undo care just logged. -->
-	{#if form?.logged}
-		<div
-			role="status"
-			class="mt-3 flex items-center justify-between gap-3 rounded-lg bg-secondary py-2 pr-2 pl-3 text-sm"
-		>
-			<p>{form.logged.message}</p>
-			<form
-				method="POST"
-				action="?/undo"
-				use:enhance={() => {
-					undoing = true;
-					return async ({ update }) => {
-						await update({ reset: false });
-						undoing = false;
-					};
-				}}
+		<!-- What the last button did, with a way to undo care just logged. -->
+		{#if form?.logged}
+			<div
+				role="status"
+				class="mt-3 flex items-center justify-between gap-3 rounded-lg bg-secondary py-2 pr-2 pl-3 text-sm"
 			>
-				<input type="hidden" name="eventId" value={form.logged.id} />
-				<Button type="submit" variant="outline" size="sm" class="shrink-0" disabled={undoing}>
-					<Undo2Icon />
-					Undo
-				</Button>
-			</form>
-		</div>
-	{:else if form?.message}
-		<p role="status" class="mt-3 rounded-lg bg-secondary px-3 py-2 text-sm">{form.message}</p>
-	{:else if form?.error}
-		<p role="alert" class="mt-3 text-sm text-destructive">{form.error}</p>
-	{/if}
+				<p>{form.logged.message}</p>
+				<form
+					method="POST"
+					action="?/undo"
+					use:enhance={() => {
+						undoing = true;
+						return async ({ update }) => {
+							await update({ reset: false });
+							undoing = false;
+						};
+					}}
+				>
+					<input type="hidden" name="eventId" value={form.logged.id} />
+					<Button type="submit" variant="outline" size="sm" class="shrink-0" disabled={undoing}>
+						<Undo2Icon />
+						Undo
+					</Button>
+				</form>
+			</div>
+		{:else if form?.message}
+			<p role="status" class="mt-3 rounded-lg bg-secondary px-3 py-2 text-sm">{form.message}</p>
+		{:else if form?.error}
+			<p role="alert" class="mt-3 text-sm text-destructive">{form.error}</p>
+		{/if}
 
-	{#if data.schedules.length > 0}
-		<ul class="mt-3 divide-y rounded-lg border" aria-label="Schedules">
-			{#each data.schedules as schedule (schedule.id)}
-				<CareSchedule
-					plantId={plant.id}
-					{schedule}
-					canLog={data.canLog}
-					canConfigure={data.canConfigure}
-					snoozeError={form?.snooze?.task === schedule.task ? form.snooze.error : null}
-					snoozeFrom={data.snoozeFrom}
-					snoozeTo={data.snoozeTo}
+		{#if data.schedules.length > 0}
+			<ul class="mt-3 divide-y rounded-lg border" aria-label="Schedules">
+				{#each data.schedules as schedule (schedule.id)}
+					<CareSchedule
+						plantId={plant.id}
+						{schedule}
+						canLog={data.canLog}
+						canConfigure={data.canConfigure}
+						snoozeError={form?.snooze?.task === schedule.task ? form.snooze.error : null}
+						snoozeFrom={data.snoozeFrom}
+						snoozeTo={data.snoozeTo}
+					/>
+				{/each}
+			</ul>
+		{:else}
+			<p class="mt-2 text-sm text-muted-foreground">
+				{#if data.canConfigure}
+					No regular care yet. Add a schedule, such as watering every week, and this page will say
+					when it's due.
+				{:else}
+					No regular care has been set up for {plant.nickname} yet.
+				{/if}
+			</p>
+		{/if}
+
+		{#if data.canConfigure && data.unscheduled.length > 0}
+			<Button
+				href={resolve(`plants/${plant.id}/schedules/new`)}
+				variant="outline"
+				class="mt-3 h-11 w-full"
+			>
+				<PlusIcon />
+				Add a schedule
+			</Button>
+		{/if}
+
+		{#if data.canLog}
+			<div class="mt-3">
+				<LogCareForm
+					values={form?.log?.values}
+					errors={form?.log?.errors}
+					latest={data.latest}
+					noteLimit={data.noteLimit}
+					canAddPhoto={data.canAddPhoto}
 				/>
-			{/each}
-		</ul>
-	{:else}
-		<p class="mt-2 text-sm text-muted-foreground">
-			{#if data.canConfigure}
-				No regular care yet. Add a schedule, such as watering every week, and this page will say
-				when it's due.
-			{:else}
-				No regular care has been set up for {plant.nickname} yet.
-			{/if}
-		</p>
-	{/if}
-
-	{#if data.canConfigure && data.unscheduled.length > 0}
-		<Button
-			href={resolve(`plants/${plant.id}/schedules/new`)}
-			variant="outline"
-			class="mt-3 h-11 w-full"
-		>
-			<PlusIcon />
-			Add a schedule
-		</Button>
-	{/if}
-
-	{#if data.canLog}
-		<div class="mt-3">
-			<LogCareForm
-				values={form?.log?.values}
-				errors={form?.log?.errors}
-				latest={data.latest}
-				noteLimit={data.noteLimit}
-				canAddPhoto={data.canAddPhoto}
-			/>
-		</div>
-	{/if}
-</section>
+			</div>
+		{/if}
+	</section>
+{/if}
 
 {#if plant.notes}
 	<section class="mt-8" aria-labelledby="notes">
@@ -355,7 +429,7 @@
 	{/if}
 </section>
 
-{#each comingSoon as section (section.id)}
+{#each data.memorial ? [] : comingSoon as section (section.id)}
 	<section class="mt-8" aria-labelledby={section.id}>
 		<h2 id={section.id} class="text-lg font-semibold">{section.title}</h2>
 		<div

@@ -1,18 +1,27 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { listPlants } from '#lib/server/data/plants.js';
+import { listMemorial, listPlants } from '#lib/server/data/plants.js';
 import { deleteRoom, getRoom, roomInput, updateRoom } from '#lib/server/data/rooms.js';
 import { fieldErrors, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Changing a room, or deleting it once it's empty (D30). */
+/** Changing a room, or deleting it once it's empty, even of plants in the Memorial (D30, D44). */
 export const load: PageServerLoad = ({ locals, params }) => {
 	const { home } = requireHome(locals, 'home:configure');
 	const room = getRoom(home.id, params.roomId);
 	if (!room) error(404, 'Not found');
 	return {
 		room,
-		plants: listPlants(home.id, { roomId: room.id }).map(({ id, nickname }) => ({ id, nickname }))
+		plants: [
+			...listPlants(home.id, { roomId: room.id }).map(({ id, nickname }) => ({
+				id,
+				nickname,
+				inMemorial: false
+			})),
+			...listMemorial(home.id)
+				.filter((plant) => plant.roomId === room.id)
+				.map(({ id, nickname }) => ({ id, nickname, inMemorial: true }))
+		]
 	};
 };
 

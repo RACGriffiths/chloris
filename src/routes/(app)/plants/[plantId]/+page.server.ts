@@ -18,7 +18,7 @@ import {
 	undoCare
 } from '#lib/server/data/care-events.js';
 import { addPhoto, listPhotos, photoInput, type Photo } from '#lib/server/data/photos.js';
-import { getPlant } from '#lib/server/data/plants.js';
+import { getPlant, restorePlant } from '#lib/server/data/plants.js';
 import {
 	MAX_SNOOZE_DAYS,
 	cancelSnooze,
@@ -32,6 +32,7 @@ import { can } from '#lib/server/permissions/index.js';
 import type { Home } from '#lib/server/data/homes.js';
 import type { PhotoProblem } from '#lib/server/photos/process.js';
 import { MAX_PHOTO_BYTES } from '#lib/photos.js';
+import { statusName } from '#lib/plants.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -39,6 +40,9 @@ import type { Actions, PageServerLoad } from './$types';
  * and its photo timeline (D39). Measurements come with a later item. Logging, checking, snoozing
  * and undoing care, and adding photos, happen here; schedules are added and changed on their own
  * pages, and each photo has its own page.
+ *
+ * A plant in the Memorial says what happened to it, and is restored from here (D43). Its
+ * schedules are hidden and care can't be logged on it, but its history and photos stay (D44).
  */
 
 /** How much care history the page shows before "Show all". */
@@ -115,6 +119,15 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 
 	return {
 		plant: { ...plant, acquired: plant.acquiredOn ? formatCalendarDate(plant.acquiredOn) : null },
+		/** What happened to a plant in the Memorial, or `null` for an active one. */
+		memorial:
+			plant.status === 'active'
+				? null
+				: {
+						status: statusName(plant.status),
+						on: plant.statusOn ? formatCalendarDate(plant.statusOn) : null,
+						note: plant.statusNote
+					},
 		schedules: schedules.map((schedule) => ({
 			id: schedule.id,
 			task: schedule.task,
@@ -308,6 +321,14 @@ export const actions = {
 				return fail(400, { photo: { values, errors: { photo: PHOTO_PROBLEMS[result.reason] } } });
 		}
 		return { photoAdded: 'Photo added.' };
+	},
+
+	/** Brings a plant back from the Memorial, with its schedules (D43). */
+	restore: ({ locals, params }) => {
+		const { home } = requireHome(locals, 'plant:edit');
+		const plant = plantIn(home, params.plantId);
+		if (!restorePlant(home.id, plant.id)) error(404, 'Not found');
+		return { message: `${plant.nickname} is back in Plants and Today.` };
 	},
 
 	unsnooze: async ({ locals, params, request }) => {

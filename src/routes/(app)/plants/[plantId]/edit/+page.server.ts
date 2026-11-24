@@ -5,7 +5,11 @@ import { fieldErrors, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Changing a plant's details, including moving it to another room. */
+/**
+ * Changing a plant's details, including moving it to another room, whatever its status: a room
+ * can be deleted only once even its plants in the Memorial are moved (D30, D44). An active plant's
+ * page ends with the way to the Memorial (D43).
+ */
 export const load: PageServerLoad = ({ locals, params }) => {
 	const { home } = requireHome(locals, 'plant:edit');
 	const plant = getPlant(home.id, params.plantId);
@@ -14,6 +18,7 @@ export const load: PageServerLoad = ({ locals, params }) => {
 		plant: {
 			id: plant.id,
 			nickname: plant.nickname,
+			inMemorial: plant.status !== 'active',
 			values: {
 				nickname: plant.nickname,
 				roomId: plant.roomId,
