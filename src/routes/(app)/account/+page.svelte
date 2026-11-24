@@ -1,10 +1,13 @@
 <script lang="ts">
+	import BellIcon from '@lucide/svelte/icons/bell';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import MonitorSmartphoneIcon from '@lucide/svelte/icons/monitor-smartphone';
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { refreshAll } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import type { PageProps } from './$types';
 
@@ -48,7 +51,24 @@
 	<p role="alert" class="mt-4 text-sm text-destructive">{form.error}</p>
 {/if}
 
-<section class="mt-8" aria-labelledby="passkeys">
+{#if data.digest}
+	<section class="mt-8" aria-labelledby="notifications">
+		<h2 id="notifications" class="text-lg font-semibold">Notifications</h2>
+		<a
+			href={resolve('account/notifications')}
+			class="mt-4 flex items-center gap-3 rounded-lg border p-3 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+		>
+			<BellIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+			<span class="min-w-0 flex-1">
+				<span class="block font-medium">Daily digest</span>
+				<span class="block text-sm text-muted-foreground">{data.digest}</span>
+			</span>
+			<ChevronRightIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+		</a>
+	</section>
+{/if}
+
+<section class="mt-10" aria-labelledby="passkeys">
 	<h2 id="passkeys" class="text-lg font-semibold">Passkeys</h2>
 	<p class="mt-1 text-sm text-muted-foreground">
 		Sign in with a fingerprint, face or screen lock instead of waiting for a link.

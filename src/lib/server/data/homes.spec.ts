@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addMember, insertUser, useTestDatabase } from '../testing';
-import { createHome, getHome, listHomesForUser } from './homes';
+import { createHome, getHome, listHomeIds, listHomesForUser } from './homes';
 import { getMembership } from './memberships';
 
 useTestDatabase();
@@ -61,6 +61,22 @@ describe('getHome', () => {
 		expect(getHome(alices.id)).toEqual(alices);
 		expect(getHome(bobs.id)).toEqual(bobs);
 		expect(getHome('no-such-home')).toBeNull();
+	});
+});
+
+describe('listHomeIds', () => {
+	it('lists every home, for background jobs', () => {
+		expect(listHomeIds()).toEqual([]);
+		const alices = createHome(insertUser('alice@example.com'), {
+			name: "Alice's",
+			timeZone: 'Europe/London'
+		});
+		const bobs = createHome(insertUser('bob@example.com'), {
+			name: "Bob's",
+			timeZone: 'Europe/Paris'
+		});
+
+		expect(listHomeIds().toSorted()).toEqual([alices.id, bobs.id].toSorted());
 	});
 });
 

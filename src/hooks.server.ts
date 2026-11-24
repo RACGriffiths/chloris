@@ -12,6 +12,7 @@ import {
 import { getAuth, initAuth } from '#lib/server/auth/index.js';
 import { initConfig } from '#lib/server/config.js';
 import { closeDatabase, getConnection, initDatabase } from '#lib/server/db/index.js';
+import { startJobs, stopJobs } from '#lib/server/jobs/scheduler.js';
 import { createSmtpMailer } from '#lib/server/notify/mailer.js';
 import { initPhotoStorage } from '#lib/server/photos/storage.js';
 import { MAX_PHOTO_BYTES } from '#lib/photos.js';
@@ -21,8 +22,9 @@ const UPLOAD_BODY_BYTES = MAX_PHOTO_BYTES + 1024 * 1024;
 
 /**
  * Runs once when the server starts: validates the configuration, checks the photo folder, opens
- * the database and applies any migrations (after a backup), then sets up sign-in. If any of it
- * fails, the server refuses to start.
+ * the database and applies any migrations (after a backup), sets up sign-in, and starts the
+ * background jobs: the daily digest, when email is on. If any of it fails, the server refuses to
+ * start.
  */
 export const init: ServerInit = async () => {
 	if (building) return;
@@ -60,8 +62,13 @@ export const init: ServerInit = async () => {
 		}
 	});
 
+	startJobs({ mailer, origin: config.origin });
+
 	// Emitted by the Node adapter once it has stopped serving requests.
-	process.once('sveltekit:shutdown', closeDatabase);
+	process.once('sveltekit:shutdown', () => {
+		stopJobs();
+		closeDatabase();
+	});
 };
 
 /**

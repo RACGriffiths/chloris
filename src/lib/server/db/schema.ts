@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+	foreignKey,
 	index,
 	integer,
 	sqliteTable,
@@ -8,6 +9,7 @@ import {
 	type AnySQLiteColumn
 } from 'drizzle-orm/sqlite-core';
 import { CARE_TYPES, TASKS } from '../../care';
+import { DIGEST_CHANNELS } from '../../notifications';
 import { PLANT_STATUSES } from '../../plants';
 import { LIGHT_LEVELS, ROOM_SETTINGS } from '../../rooms';
 
@@ -406,5 +408,72 @@ export const photo = sqliteTable(
 	(table) => [
 		index('photo_home_id_idx').on(table.homeId),
 		index('photo_plant_id_idx').on(table.plantId, table.takenAt)
+	]
+);
+
+// Notifications (docs/spec.md, Reminders and notifications; D46 to D50).
+
+/**
+ * One person's digest settings for one home. Without a row, the defaults apply
+ * (`defaultNotificationSettings` in `#lib/notifications`). The foreign key to the membership
+ * removes the row with the membership, so settings never outlive it.
+ */
+export const notificationSettings = sqliteTable(
+	'notification_settings',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		userId: text('user_id').notNull(),
+		/** How the digest comes, or `null` when it's off. Push comes in version 2. */
+		channel: text('channel', { enum: DIGEST_CHANNELS }),
+		/** When the digest goes, `HH:MM` in the home's time zone. */
+		digestTime: text('digest_time').notNull(),
+		/** Quiet hours, `HH:MM` in the home's time zone; both `null` for none. */
+		quietStart: text('quiet_start'),
+		quietEnd: text('quiet_end'),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(table) => [
+		uniqueIndex('notification_settings_home_user_idx').on(table.homeId, table.userId),
+		foreignKey({
+			name: 'notification_settings_membership_fk',
+			columns: [table.homeId, table.userId],
+			foreignColumns: [membership.homeId, membership.userId]
+		}).onDelete('cascade')
+	]
+);
+
+/**
+ * Each day's digest for one person in one home, written before it's sent, so a restart or a
+ * second process never sends it twice (D48). A day when nothing was due has a row too, with no
+ * tasks and no `sentAt`, so that day's digest is decided once.
+ */
+export const digestLog = sqliteTable(
+	'digest_log',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		userId: text('user_id').notNull(),
+		/** The day it's for, `YYYY-MM-DD` in the home's time zone. */
+		date: text('date').notNull(),
+		channel: text('channel', { enum: DIGEST_CHANNELS }).notNull(),
+		/** How many tasks it listed: 0 when nothing was due, and nothing was sent. */
+		taskCount: integer('task_count').notNull(),
+		/** When the mail server accepted it; `null` while sending, or when nothing was due. */
+		sentAt: timestamp('sent_at'),
+		createdAt: createdAt()
+	},
+	(table) => [
+		uniqueIndex('digest_log_home_user_date_idx').on(table.homeId, table.userId, table.date),
+		foreignKey({
+			name: 'digest_log_membership_fk',
+			columns: [table.homeId, table.userId],
+			foreignColumns: [membership.homeId, membership.userId]
+		}).onDelete('cascade')
 	]
 );

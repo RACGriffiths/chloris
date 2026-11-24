@@ -10,6 +10,8 @@ export interface Email {
 	to: string;
 	subject: string;
 	text: string;
+	/** An HTML version of `text`, for mail apps that show one. */
+	html?: string;
 }
 
 export interface Mailer {

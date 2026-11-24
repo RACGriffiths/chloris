@@ -1,12 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expect, type Browser, type Page, type TestInfo } from '@playwright/test';
-import { origin, serverEnv } from './server-env';
+import { mailboxUrl, origin, serverEnv } from './server-env';
 
-/** Runs the built command-line tool against the test server's database and returns the link. */
-export function signInLink(email: string): string {
+/**
+ * Runs the built command-line tool against a test server's database and returns the link: the
+ * usual server's, or with `emailServerEnv` the one with email on.
+ */
+export function signInLink(email: string, env: Record<string, string> = serverEnv): string {
 	const output = execFileSync(process.execPath, ['build/cli', 'sign-in-link', email], {
-		env: { ...process.env, ...serverEnv },
+		env: { ...process.env, ...env },
 		encoding: 'utf8'
 	});
 	const url = /^\s+(http\S+)$/m.exec(output)?.[1];
@@ -60,17 +63,26 @@ export async function createHome(page: Page, name: string) {
 export async function newPhone(
 	browser: Browser,
 	testInfo: TestInfo,
-	options: { javaScriptEnabled?: boolean } = {}
+	options: { javaScriptEnabled?: boolean; baseURL?: string } = {}
 ): Promise<Page> {
 	const context = await browser.newContext({ ...testInfo.project.use, ...options });
 	return context.newPage();
 }
 
-/** Signs in a new owner with the command-line tool's link and has them create a home. */
-export async function newOwner(page: Page, homeName: string) {
-	await useLink(page, signInLink(newEmail('owner')));
+/**
+ * Signs in a new owner with the command-line tool's link and has them create a home, on the usual
+ * server or, with `emailServerEnv`, the one with email on. Returns their email address.
+ */
+export async function newOwner(
+	page: Page,
+	homeName: string,
+	env: Record<string, string> = serverEnv
+): Promise<string> {
+	const email = newEmail('owner');
+	await useLink(page, signInLink(email, env));
 	await page.getByRole('link', { name: 'Not now' }).click();
 	await createHome(page, homeName);
+	return email;
 }
 
 /** From the home page: makes an invite for `role` and returns its link. */
@@ -84,16 +96,24 @@ export async function createInvite(page: Page, role: 'Owner' | 'Carer' | 'Viewer
 	return link;
 }
 
-export async function joinWithNewAccount(page: Page, link: string, homeName: string, name: string) {
+/** Joins a home with an invite link, as someone without an account. Returns their email address. */
+export async function joinWithNewAccount(
+	page: Page,
+	link: string,
+	homeName: string,
+	name: string
+): Promise<string> {
+	const email = newEmail(name.toLowerCase());
 	await page.goto(link);
 	await expect(page.getByRole('heading', { name: `Join ${homeName}` })).toBeVisible();
 	await page.getByLabel('Your name').fill(name);
-	await page.getByLabel('Email').fill(newEmail(name.toLowerCase()));
+	await page.getByLabel('Email').fill(email);
 	await page.getByRole('button', { name: `Join ${homeName}` }).click();
 	// As after a first sign-in, a passkey is offered.
 	await expect(page.getByRole('heading', { name: `Welcome, ${name}` })).toBeVisible();
 	await page.getByRole('link', { name: 'Not now' }).click();
 	await expectHome(page, homeName);
+	return email;
 }
 
 /** The id in the page's address, such as a plant's after it's added. */
@@ -163,4 +183,19 @@ export async function addPlant(page: Page, nickname: string, room: string, tags 
 	await page.getByRole('button', { name: 'Add plant' }).click();
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(nickname);
 	return idFromUrl(page, /^\/plants\/([\w-]+)$/);
+}
+
+/**
+ * The email sent to `address` through the server with email on, read from the pretend mail
+ * server (`tests/mailbox.ts`), oldest first: each whole, with quoted-printable undone so links
+ * read as they were written.
+ */
+export async function readMail(address: string): Promise<string[]> {
+	const response = await fetch(`${mailboxUrl}/messages?to=${encodeURIComponent(address)}`);
+	const messages = (await response.json()) as { raw: string }[];
+	return messages.map(({ raw }) =>
+		raw
+			.replace(/=\r\n/g, '')
+			.replace(/=([0-9A-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+	);
 }

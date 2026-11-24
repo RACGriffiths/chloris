@@ -68,6 +68,20 @@ export function getHome(homeId: string): Home | null {
 }
 
 /**
+ * Every home on the server, oldest first. Only for background jobs, such as the daily digest,
+ * which work through each home in turn and are run by no one in particular, so there's no
+ * `can()` to check: each job checks `can()` for the people it acts for. Pages never call this.
+ */
+export function listHomeIds(): string[] {
+	return getConnection()
+		.db.select({ id: home.id })
+		.from(home)
+		.orderBy(asc(home.createdAt), asc(home.id))
+		.all()
+		.map((row) => row.id);
+}
+
+/**
  * The homes a user belongs to, oldest membership first, leaving out memberships that have
  * expired. The UI shows only the first for now (D14).
  */

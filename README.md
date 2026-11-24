@@ -27,7 +27,7 @@ SvelteKit (TypeScript, Node adapter), Tailwind CSS with shadcn-svelte, SQLite wi
 - One Node process or Docker container, configured by environment variables.
 - Put an HTTPS reverse proxy in front of it (Caddy, a Cloudflare Tunnel or similar). Passkeys and push notifications need a real domain with a valid certificate.
 - The database and photos live in folders you choose, so photos can sit on a separate drive.
-- Email (SMTP) is optional. Without it, the command-line tool prints one-time sign-in links: `node build/cli sign-in-link you@example.com`.
+- Email (SMTP) is optional. Without it there's no daily digest, and the command-line tool prints one-time sign-in links: `node build/cli sign-in-link you@example.com`.
 
 [.env.example](.env.example) lists the settings, and [compose.example.yaml](compose.example.yaml) is a starting point for Docker Compose. Install guides will follow with version 1.
 

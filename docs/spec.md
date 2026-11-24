@@ -67,7 +67,7 @@ Everything is TypeScript in one SvelteKit project that builds to a single Node s
 | Login and roles | BetterAuth: passkey, magic link and organisation plugins, with its Drizzle adapter | Passwordless login; a home maps onto an organisation with roles. Invite links are Chloris's own (D28). |
 | Validation | Zod, shared by forms and API | One definition of valid input, checked on both sides. |
 | Images | sharp (libvips) on the server; resizing in the browser before upload | Fast thumbnails and size variants; smaller uploads on mobile data. |
-| Background jobs | An in-process scheduler (e.g. croner) | Reminder digests need no Redis or separate worker at this scale. |
+| Background jobs | An in-process scheduler (croner) | Reminder digests need no Redis or separate worker at this scale. |
 | Push | Web Push with self-generated VAPID keys (web-push library) | Works with Apple, Google and Mozilla push services, no third-party account. |
 | Email | SMTP via Nodemailer, behind a small mailer interface | Provider-agnostic: the host sets the SMTP server. An API transport could be added later. |
 | Installable app | @vite-pwa/sveltekit | Home-screen install, a service worker for push, an offline app shell. |
@@ -93,8 +93,8 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Measurement | Plant, type, user | Value, taken at, optional photo | Charted per type. |
 | Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped (D36), and can be corrected on the photo's page (D39). Files are write-once, named by the file key rather than the photo's id (D35). The user becomes empty if their account is deleted. |
 | Push subscription | User | Endpoint, keys, device name | Removed when the push service reports it gone. |
-| Notification settings | User + home | Channels, digest time, quiet hours | One set per home. |
-| Digest log | User + home | Date, channel, sent at | Stops a restart from sending a digest twice. |
+| Notification settings | User + home | Digest channel (email, push from version 2, or off), digest time, quiet hours | One set per home, removed with the membership. Without one, the defaults apply (D46, D47). |
+| Digest log | User + home | Date, channel, task count, sent at | One row per person, home and day, written before the digest is sent, so a restart never sends it twice. A day with nothing due has a row too (D48). |
 | Audit event | Home, user | Action, target, time | Logins, invites, role changes, exports, deletions. |
 
 ## Authentication and access control
@@ -200,13 +200,15 @@ The Today view is the home screen and the care log is the core. Everything else 
 
 Each person gets one daily digest per home, at a time they choose, by push or email. When nothing is due, nothing is sent.
 
-- **Digest content.** What is due today and what is overdue, grouped by room, each linking straight to the plant.
-- **Channels.** Web push to the installed app is the default. On iPhone this needs the app added to the home screen. Email is the fallback, chosen per person per home.
+- **Digest content.** What is due today and what is overdue, grouped by room and then by plant as on the Today view, each linking straight to the plant (D49).
+- **Channels.** Web push to the installed app is the default. On iPhone this needs the app added to the home screen. Email is the fallback, chosen per person per home. Version 1 has email only, and without SMTP settings there are no digests.
+- **Settings.** A Notifications page, reached from Account, sets how the digest comes, at what time, and the quiet hours, all in the home's time zone. Until someone chooses, it comes by email at 08:00 for those who can log care and is off for viewers, with quiet hours from 22:00 to 07:00 (D47).
+- **Who gets one.** Members whose membership still grants access when it's sent: an expired membership stops it. Email goes only to a confirmed address; someone who joined by invite confirms theirs with a sign-in link sent from the Notifications page (D50).
 - **Shared homes.** When anyone logs a task, it clears for everyone. The digest re-checks just before sending.
 - **Snooze and "checked, not needed".** Both move the due date, so the plant drops out of the next digest.
-- **Quiet hours.** No notifications are sent inside them.
+- **Quiet hours.** No notifications are sent inside them. A digest time inside them is refused.
 - **Actions on the notification.** "Done" and "Snooze" buttons, where the platform supports them.
-- **Reliability.** The scheduler runs every few minutes and records each digest it sends in the digest log, so a restart never sends one twice. Push subscriptions the push service reports as gone are deleted.
+- **Reliability.** The scheduler runs every 5 minutes. A digest goes on the first run at or after its time that day, outside quiet hours, so one missed while the server was down goes when it's back. Each day's digest is decided once, and recorded in the digest log before it's sent, so a restart never sends one twice. If the mail server refuses it, the next run tries again (D48). Push subscriptions the push service reports as gone are deleted.
 - **Later.** Assigning a plant or room to one person, so only they are reminded, and a private calendar feed of upcoming care.
 
 ## Photos and backups
@@ -214,7 +216,7 @@ Each person gets one daily digest per home, at a time they choose, by push or em
 The database and the photos can live on different drives and be backed up at different times. The design keeps them consistent anyway.
 
 - **Write-once files.** Each upload gets a new, unguessable file name and is never overwritten. Each photo is stored as JPEGs in three sizes: a 400-pixel square thumbnail, up to 1280 pixels and up to 2560 pixels on the longest side, in a folder for its home (D35).
-- **Delayed deletion.** Deleting a photo sets `deleted at` in the database. Its files are removed only after `PHOTO_DELETE_GRACE_DAYS`.
+- **Delayed deletion.** Deleting a photo sets `deleted at` in the database. Its files are removed only after `PHOTO_DELETE_GRACE_DAYS`, by a scheduled job that comes with the backup command (D51).
 - **Clean uploads.** The browser reads the date the photo was taken, then resizes it to 2560 pixels and strips its metadata before upload, sending the date separately (D36). Without JavaScript the original is uploaded and the server reads the date itself. Either way, the server strips GPS and other metadata again, re-encodes the image, enforces size limits (20 MB, 100 megapixels) and an allow-list of types (JPEG, PNG and WebP, judged by the file's contents). HEIC is not on the list, because sharp's standard build can't read it. iPhones normally convert photos to JPEG when uploading from a web page, and the browser's resize produces JPEG anyway, so the server rejects HEIC with a message asking for a JPEG.
 
 Because photo files are only ever added, a photo backup taken after a database backup holds every photo that database refers to.

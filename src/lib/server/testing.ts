@@ -5,8 +5,8 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, beforeEach } from 'vitest';
 import { closeDatabase, getConnection, initDatabase } from './db';
-import { eq } from 'drizzle-orm';
-import { membership, photo, user } from './db/schema';
+import { and, eq } from 'drizzle-orm';
+import { digestLog, membership, photo, user } from './db/schema';
 import { initPhotoStorage } from './photos/storage';
 
 /**
@@ -50,6 +50,34 @@ export function addMember(
 		.db.insert(membership)
 		.values({ id: randomUUID(), homeId, userId, role, expiresAt, createdAt })
 		.run();
+}
+
+/** Removes a membership directly, as removing members will when it arrives. */
+export function removeMember(homeId: string, userId: string): void {
+	getConnection()
+		.db.delete(membership)
+		.where(and(eq(membership.homeId, homeId), eq(membership.userId, userId)))
+		.run();
+}
+
+/** Marks a user's email address as proven, as using a sign-in link sent to it does (D50). */
+export function setEmailVerified(userId: string, verified: boolean): void {
+	getConnection().db.update(user).set({ emailVerified: verified }).where(eq(user.id, userId)).run();
+}
+
+/** A person's digest log entry for one day in a home, read back directly; `undefined` if none. */
+export function digestEntry(homeId: string, userId: string, date: string) {
+	return getConnection()
+		.db.select({
+			channel: digestLog.channel,
+			taskCount: digestLog.taskCount,
+			sentAt: digestLog.sentAt
+		})
+		.from(digestLog)
+		.where(
+			and(eq(digestLog.homeId, homeId), eq(digestLog.userId, userId), eq(digestLog.date, date))
+		)
+		.get();
 }
 
 /**
