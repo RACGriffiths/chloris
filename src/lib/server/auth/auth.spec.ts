@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getConnection } from '../db';
+import { listAuditEvents } from '../data/audit';
+import { listServerEvents } from '../data/server-log';
+import { createHome } from '../data/homes';
 import { accountExists, mayCreateHome } from '../data/users';
 import { TEST_ORIGIN, TEST_SECRET, insertUser, useTestDatabase } from '../testing';
 import { signInLinkEmail } from './emails';
-import { SIGN_IN_LINK_MINUTES, createAuth, type SignInLink } from './index';
+import { CLIENT_ADDRESS_HEADER, SIGN_IN_LINK_MINUTES, createAuth, type SignInLink } from './index';
 import { createCommandLineSignInLink } from './sign-in-link';
 
 useTestDatabase();
@@ -165,5 +168,59 @@ describe('sessions', () => {
 		});
 
 		expect(headers.get('set-cookie')).toMatch(/^__Secure-chloris\.session_token=[^;]+;.*Secure/i);
+	});
+});
+
+describe('audit log', () => {
+	const fromPhone = () =>
+		new Headers({
+			[CLIENT_ADDRESS_HEADER]: '203.0.113.7',
+			'user-agent': 'Mozilla/5.0 (Linux; Android 15) Chrome/140.0 Mobile Safari/537.36'
+		});
+
+	it("records a sign-in in the server's log with where it came from, and in the home's", async () => {
+		const owner = insertUser('owner@example.com', { canCreateHome: true });
+		const home = createHome(owner, { name: 'Flat', timeZone: 'Europe/London' });
+		const link = await commandLineLink('owner@example.com');
+
+		await testAuth().auth.api.magicLinkVerify({
+			query: { token: tokenOf(link.url) },
+			headers: fromPhone()
+		});
+
+		expect(listServerEvents(10)).toMatchObject([
+			{
+				action: 'sign-in',
+				detail: { method: 'link' },
+				userEmail: 'owner@example.com',
+				ipAddress: '203.0.113.7',
+				userAgent: expect.stringContaining('Android') as unknown
+			}
+		]);
+		// A home's owners see that they signed in, but not where from (D58).
+		expect(listAuditEvents(home.id)).toMatchObject([
+			{ action: 'sign-in', userName: 'owner', ipAddress: null, userAgent: null }
+		]);
+	});
+
+	it("records a sign-in in the server's log even before the person has a home", async () => {
+		const link = await commandLineLink('new@example.com');
+
+		await useLink(link.url);
+
+		expect(listServerEvents(10)).toMatchObject([
+			{ action: 'sign-in', userEmail: 'new@example.com' }
+		]);
+	});
+
+	it("records nothing when a link doesn't work", async () => {
+		const owner = insertUser('owner@example.com', { canCreateHome: true });
+		const home = createHome(owner, { name: 'Flat', timeZone: 'Europe/London' });
+		const link = await commandLineLink('owner@example.com');
+		await useLink(link.url);
+
+		await expect(useLink(link.url)).rejects.toThrow();
+
+		expect(listAuditEvents(home.id)).toHaveLength(1);
 	});
 });

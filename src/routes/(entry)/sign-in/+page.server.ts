@@ -5,6 +5,7 @@ import { SIGN_IN_LINK_MINUTES, getAuth } from '#lib/server/auth/index.js';
 import { getConfig } from '#lib/server/config.js';
 import { accountExists } from '#lib/server/data/users.js';
 import { textField } from '#lib/server/forms.js';
+import { consumeSignInLink, tooManyLinks } from '#lib/server/security/rate-limit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
@@ -24,6 +25,10 @@ export const actions = {
 		}
 		const parsed = emailField.safeParse({ email });
 		if (!parsed.success) return fail(400, { email, error: 'Enter your email address.' });
+
+		// Counted before looking for the account, so the limits answer the same either way (D56).
+		const limited = consumeSignInLink(event, parsed.data.email);
+		if (!limited.ok) return fail(429, { email, error: tooManyLinks(limited) });
 
 		// Answers the same either way, so the form doesn't reveal who has an account.
 		if (accountExists(parsed.data.email)) {

@@ -165,9 +165,15 @@ describe('findInvite', () => {
 describe('acceptInvite', () => {
 	it("adds the account to the invite's home with its role, and to no other home", () => {
 		const carol = insertUser('carol@example.com');
-		const { token } = createInvite(aliceHome, alice, { role: 'carer' });
+		const { invite, token } = createInvite(aliceHome, alice, { role: 'carer' });
 
-		expect(acceptInvite(token, carol)).toEqual({ ok: true, homeId: aliceHome, userId: carol });
+		expect(acceptInvite(token, carol)).toEqual({
+			ok: true,
+			homeId: aliceHome,
+			userId: carol,
+			inviteId: invite.id,
+			role: 'carer'
+		});
 
 		expect(getMembership(aliceHome, carol)).toMatchObject({ role: 'carer', expiresAt: null });
 		expect(getMembership(bobHome, carol)).toBeNull();

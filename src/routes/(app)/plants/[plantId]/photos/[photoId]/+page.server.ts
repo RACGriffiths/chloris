@@ -16,6 +16,7 @@ import { getPlant, setCoverPhoto } from '#lib/server/data/plants.js';
 import { fieldErrors, textField, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
 import { can } from '#lib/server/permissions/index.js';
+import { audit } from '#lib/server/security/audit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -124,12 +125,20 @@ export const actions = {
 	},
 
 	/** Deletes the photo, then goes back to the plant's timeline. */
-	delete: ({ locals, params }) => {
-		const { user, home } = requireHome(locals, 'photo:add');
+	delete: (event) => {
+		const { params } = event;
+		const { user, home } = requireHome(event.locals, 'photo:add');
 		const plant = plantIn(home, params.plantId);
 
 		const result = deletePhoto(home.id, plant.id, params.photoId, editorFor(user, home));
 		if (!result.ok && result.reason === 'not-yours') error(403, NOT_YOURS);
+		if (result.ok) {
+			audit(event, home.id, user.id, {
+				action: 'photo-deleted',
+				targetId: params.photoId,
+				detail: { plant: plant.nickname }
+			});
+		}
 		// Already deleted, perhaps by someone else: the timeline is the place to go either way.
 		redirect(303, `/plants/${plant.id}#photos`);
 	}

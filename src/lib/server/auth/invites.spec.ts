@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getConnection } from '../db';
+import { listAuditEvents } from '../data/audit';
+import { listServerEvents } from '../data/server-log';
 import { createHome } from '../data/homes';
 import { createInvite } from '../data/invites';
 import { getMembership } from '../data/memberships';
@@ -55,6 +57,22 @@ describe('joinWithInvite', () => {
 			headers: new Headers({ cookie: setCookie.split(';')[0] })
 		});
 		expect(session?.user).toMatchObject({ id: userId, email: 'carol@example.com' });
+	});
+
+	it('records the sign-in in the home it joins', async () => {
+		const { home, token } = aliceInvite();
+
+		await testAuth().api.joinWithInvite({
+			body: { token, name: 'Carol', email: 'carol@example.com' },
+			headers: new Headers({ 'user-agent': 'Mozilla/5.0 (iPhone)' })
+		});
+
+		expect(listAuditEvents(home.id)).toMatchObject([
+			{ action: 'sign-in', detail: { method: 'invite' }, userName: 'Carol' }
+		]);
+		expect(listServerEvents(10)).toMatchObject([
+			{ action: 'sign-in', userEmail: 'carol@example.com', userAgent: 'Mozilla/5.0 (iPhone)' }
+		]);
 	});
 
 	it('signs no one in when the invite is refused', async () => {

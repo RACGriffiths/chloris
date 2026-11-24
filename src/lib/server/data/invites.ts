@@ -65,7 +65,7 @@ export interface InviteDetails {
 
 /** The outcome of using an invite. A refused invite is left as it was. */
 export type JoinResult =
-	| { ok: true; homeId: string; userId: string }
+	| { ok: true; homeId: string; userId: string; inviteId: string; role: InviteRole }
 	| { ok: false; reason: 'invalid' | 'already-member' | 'email-taken' };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -199,7 +199,13 @@ export function acceptInvite(token: string, userId: string, now = new Date()): J
 					.values({ id: randomUUID(), homeId: found.homeId, userId, role: found.role })
 					.run();
 			}
-			return { ok: true, homeId: found.homeId, userId } as const;
+			return {
+				ok: true,
+				homeId: found.homeId,
+				userId,
+				inviteId: found.id,
+				role: found.role
+			} as const;
 		},
 		// Takes the write lock at once, so two people can't both use the same link.
 		{ behavior: 'immediate' }
@@ -238,7 +244,13 @@ export function joinWithNewAccount(
 			tx.insert(membership)
 				.values({ id: randomUUID(), homeId: found.homeId, userId, role: found.role })
 				.run();
-			return { ok: true, homeId: found.homeId, userId } as const;
+			return {
+				ok: true,
+				homeId: found.homeId,
+				userId,
+				inviteId: found.id,
+				role: found.role
+			} as const;
 		},
 		{ behavior: 'immediate' }
 	);

@@ -2,9 +2,11 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import LinkIcon from '@lucide/svelte/icons/link';
+	import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
 	import Share2Icon from '@lucide/svelte/icons/share-2';
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
@@ -200,3 +202,14 @@
 		</ul>
 	</section>
 {/if}
+
+<section class="mt-10" aria-labelledby="audit">
+	<h2 id="audit" class="text-lg font-semibold">Audit log</h2>
+	<p class="mt-1 text-sm text-muted-foreground">
+		Who signed in, and when, and the invites, passkeys and deletions in this home.
+	</p>
+	<Button href={resolve('members/audit')} variant="outline" class="mt-4 h-11 w-full">
+		<ScrollTextIcon />
+		See the audit log
+	</Button>
+</section>

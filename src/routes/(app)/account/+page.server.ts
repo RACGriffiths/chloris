@@ -10,6 +10,7 @@ import { listHomesForUser } from '#lib/server/data/homes.js';
 import { getNotificationSettings } from '#lib/server/data/notifications.js';
 import { textField } from '#lib/server/forms.js';
 import { can } from '#lib/server/permissions/index.js';
+import { auditAccount, requestSource } from '#lib/server/security/audit.js';
 import type { Actions, PageServerLoad, RequestEvent } from './$types';
 
 /**
@@ -73,14 +74,27 @@ async function signOut(event: RequestEvent): Promise<never> {
 
 export const actions = {
 	deletePasskey: async (event) => {
-		requireUser(event.locals);
+		const user = requireUser(event.locals);
 		const id = textField(await event.request.formData(), 'id');
+		const headers = authHeaders(event);
+		const auth = getAuth();
+		// BetterAuth lists only the signed-in person's own passkeys.
+		const passkey = (await auth.api.listPasskeys({ headers })).find((key) => key.id === id);
+		if (!passkey) return fail(400, { error: "That passkey couldn't be removed." });
 		try {
-			await getAuth().api.deletePasskey({ body: { id }, headers: authHeaders(event) });
+			await auth.api.deletePasskey({ body: { id }, headers });
 		} catch (error) {
 			if (isAPIError(error)) return fail(400, { error: "That passkey couldn't be removed." });
 			throw error;
 		}
+		auditAccount(
+			{ ...requestSource(event), userId: user.id },
+			{
+				action: 'passkey-removed',
+				targetId: id,
+				detail: { name: passkey.name || 'Passkey' }
+			}
+		);
 		return { removed: 'passkey' };
 	},
 

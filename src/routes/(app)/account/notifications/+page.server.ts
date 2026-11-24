@@ -17,6 +17,7 @@ import {
 import { fieldErrors, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
 import { can } from '#lib/server/permissions/index.js';
+import { consumeSignInLink, tooManyLinks } from '#lib/server/security/rate-limit.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -74,6 +75,8 @@ export const actions = {
 		const { user } = requireHome(event.locals, 'home:view');
 		if (getConfig().smtp === null) return fail(400, { error: EMAIL_OFF });
 		if (user.emailVerified) return { confirmed: true };
+		const limited = consumeSignInLink(event, user.email);
+		if (!limited.ok) return fail(429, { error: tooManyLinks(limited) });
 
 		await getAuth().api.signInMagicLink({
 			body: { email: user.email },

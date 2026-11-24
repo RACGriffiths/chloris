@@ -13,7 +13,11 @@ export const serverEnv = {
 	// Playwright empties test-results before each run, so every run starts with a new database.
 	DATA_DIR: 'test-results/e2e-data',
 	// As the Docker image sets it, so originals sent without JavaScript fit.
-	BODY_SIZE_LIMIT: '25M'
+	BODY_SIZE_LIMIT: '25M',
+	// As behind one proxy, so a test can send `X-Forwarded-For` to be a visitor of its own, with
+	// rate limits of its own (tests/security.e2e.ts). Requests without it all share one set.
+	ADDRESS_HEADER: 'X-Forwarded-For',
+	XFF_DEPTH: '1'
 };
 
 /**

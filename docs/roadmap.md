@@ -32,7 +32,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Memorial and lifecycle statuses
 - [x] Daily email digest: scheduler, digest log, quiet hours
 - [x] Backup command and integrity check, and removing deleted photos' files after the grace period (D51)
-- [ ] Security baseline: CSP, rate limits, audit log
+- [x] Security baseline: CSP, rate limits, audit log
 - [ ] Install guides for an LXC and for Docker
 - [ ] Release workflow: on a version tag, build the Docker image for x86 and ARM and publish it to GitHub's container registry
 - [ ] About page with the version and a source-code link (AGPL)
@@ -42,6 +42,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [ ] Web push and the installable app (PWA)
 - [ ] Measurements and charts
 - [ ] Sending invites by email, and switching between homes
+- [ ] Server admin role and section: accounts, homes, the server's log and health, invites to create a home (D58)
 - [ ] Sitter role with expiry
 - [ ] Winter intervals
 - [ ] QR labels for pots
