@@ -31,7 +31,8 @@ services:
     volumes:
       # The database (and, by default, photos) in a named volume.
       - chloris-data:/data
-      # A folder on another drive for photos. It must be writable by user ID 1000.
+      # A folder on another drive for photos. It must exist and be writable by user ID 1000, or
+      # Chloris won't start.
       # - /mnt/photos/chloris:/photos
 
 volumes:

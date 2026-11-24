@@ -287,6 +287,10 @@ export const plant = sqliteTable(
 		parentId: text('parent_id').references((): AnySQLiteColumn => plant.id, {
 			onDelete: 'set null'
 		}),
+		/** One of its own photos, shown on its tile. Stored with the photo table (D38); chosen on the timeline. */
+		coverPhotoId: text('cover_photo_id').references((): AnySQLiteColumn => photo.id, {
+			onDelete: 'set null'
+		}),
 		createdAt: createdAt(),
 		updatedAt: updatedAt()
 	},
@@ -322,6 +326,10 @@ export const careEvent = sqliteTable(
 		/** When the care was given, which may be earlier than when it was logged (backdating). */
 		doneAt: timestamp('done_at').notNull(),
 		note: text('note'),
+		/** A photo taken with the care, of the same plant. Stored with the photo table (D38). */
+		photoId: text('photo_id').references((): AnySQLiteColumn => photo.id, {
+			onDelete: 'set null'
+		}),
 		createdAt: createdAt()
 	},
 	(table) => [
@@ -360,5 +368,43 @@ export const careSchedule = sqliteTable(
 	(table) => [
 		index('care_schedule_home_id_idx').on(table.homeId),
 		uniqueIndex('care_schedule_plant_task_idx').on(table.plantId, table.task)
+	]
+);
+
+// Photos (docs/spec.md, Photos and backups; D35 to D38).
+
+/**
+ * A photo of a plant. Its files, one per size, are in `PHOTOS_DIR` under the home's id, named by
+ * `fileKey` (`#lib/server/photos/storage`). Files are written once and never overwritten
+ * (CLAUDE.md rule 5). Deleting a photo sets `deletedAt`, and its files stay through
+ * `PHOTO_DELETE_GRACE_DAYS`, so a photo backup taken after a database backup still has them.
+ */
+export const photo = sqliteTable(
+	'photo',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		plantId: text('plant_id')
+			.notNull()
+			.references(() => plant.id, { onDelete: 'cascade' }),
+		/** Who added it; `null` once their account is deleted, so the home keeps its photos. */
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		/** Names its files. Random and separate from `id`, so a photo's address says nothing of them. */
+		fileKey: text('file_key').notNull().unique(),
+		/** When it was taken, from the photo's own date, or when it was added if it had none (D36). */
+		takenAt: timestamp('taken_at').notNull(),
+		/** The size of its largest file, in pixels, the right way up. */
+		width: integer('width').notNull(),
+		height: integer('height').notNull(),
+		caption: text('caption'),
+		/** When it was deleted. Left out of every read; its files go after the grace period. */
+		deletedAt: timestamp('deleted_at'),
+		createdAt: createdAt()
+	},
+	(table) => [
+		index('photo_home_id_idx').on(table.homeId),
+		index('photo_plant_id_idx').on(table.plantId, table.takenAt)
 	]
 );

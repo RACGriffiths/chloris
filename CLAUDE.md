@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, and the Today view are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view and the photo pipeline are in.
 
 ## Read first
 
@@ -46,12 +46,15 @@ src/
     notify/       mailer (push in v2)
     cli.ts        the command-line tool's commands
     testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
-    photos/       upload pipeline, storage, serving (v1)
+    photos/       checking and resizing uploads with sharp, write-once storage, the missing-photo
+                  placeholder (the data layer's photos.ts is what calls them)
     jobs/         scheduler, digests, photo clean-up (v1)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
-  lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts
+  lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts
                       shared by server and pages: room, plant and care choices, their names on
-                      screen, calendar dates and times in the home's time zone
+                      screen, calendar dates and times in the home's time zone, photo sizes and
+                      limits, reading the date a photo was taken from its EXIF data
+  lib/photo-upload.ts resizing a photo in the browser before upload (load with await import())
   lib/components/     the app's own components (plant form, room fields, plant tile, care schedule,
                       log care form, schedule fields, due task)
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
@@ -59,7 +62,7 @@ src/
   routes/
     (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
     (app)/        the signed-in app: the Today view (the home page), plants, rooms, members and
-                  invites, the account page
+                  invites, the account page, and photos/[photoId]/[size], which serves photo files
 tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
 ```
 
@@ -108,6 +111,10 @@ Much SvelteKit material online describes version 2. In this project:
 - A `min` or `max` on a date field stops the browser from sending a value outside it, so an end-to-end test of the server's own check has to post the form directly (`post()` in `tests/helpers.ts`).
 - Playwright's `toHaveText` reads text hidden with `aria-hidden`, such as a plant tile's initial inside a plant's link, so match the name with a regular expression there. The home page's heading is "Today": wait for it with `expectHome(page, name)` from `tests/helpers.ts`.
 - To log a task on several plants, a form repeats a hidden field (`plantId`) and the action reads it with `textList()` from `#lib/server/forms.js`. Two submit buttons in one form can each send their own `name` and `value` (Done or "Not needed"), with or without JavaScript.
+- drizzle-kit leaves `ON DELETE` off a foreign key it adds to an existing table with `ALTER TABLE ... ADD`, though its snapshot records it. Add it to the generated migration by hand before committing (see `0004_photos.sql`).
+- The Node adapter refuses a request over `BODY_SIZE_LIMIT` only when the body is read: `request.formData()` throws an error with `status` 413. Catch it in the action to show a message (the plant page's `addPhoto`). `npm run dev` has no limit.
+- sharp's `metadata()` already enforces `limitInputPixels`, so read the header with `limitInputPixels: false` and check the size yourself, then decode with the limit.
+- `resolve()` gives relative paths in server-rendered pages (`../photos/<id>/thumb`): in Playwright, read them with `new URL(src, page.url())`. Playwright can't read a request body holding a file; `watchUploads()` in `tests/photos.e2e.ts` keeps a copy in the page instead.
 - In Playwright, `getByLabel` and `getByRole({ name })` match substrings: "Kitchen" also finds "Edit Kitchen", and "Name" finds "Room name". Use `exact: true`. After a click that navigates, wait for something on the next page before filling a field or reading the URL, or the step acts on the old page.
 
 ## Commands
