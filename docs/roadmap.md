@@ -31,7 +31,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Photo timeline on the plant page, and cover photos
 - [x] Memorial and lifecycle statuses
 - [x] Daily email digest: scheduler, digest log, quiet hours
-- [ ] Backup command and integrity check, and removing deleted photos' files after the grace period (D51)
+- [x] Backup command and integrity check, and removing deleted photos' files after the grace period (D51)
 - [ ] Security baseline: CSP, rate limits, audit log
 - [ ] Install guides for an LXC and for Docker
 - [ ] Release workflow: on a version tag, build the Docker image for x86 and ARM and publish it to GitHub's container registry

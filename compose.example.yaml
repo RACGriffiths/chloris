@@ -3,6 +3,8 @@
 # Put an HTTPS reverse proxy (Caddy, a tunnel, ...) in front: passkeys need a real domain.
 # Then make the first account and open the link it prints:
 #   docker compose exec chloris node build/cli sign-in-link you@example.com
+# To back up (from the host's cron, say), uncomment the backups volume below, then:
+#   docker compose exec chloris node build/cli backup /backups --keep 14
 services:
   chloris:
     build: .
@@ -34,6 +36,9 @@ services:
       # A folder on another drive for photos. It must exist and be writable by user ID 1000, or
       # Chloris won't start.
       # - /mnt/photos/chloris:/photos
+      # A folder for backups, ideally on another drive. It must exist and be writable by user
+      # ID 1000.
+      # - /mnt/backups/chloris:/backups
 
 volumes:
   chloris-data:

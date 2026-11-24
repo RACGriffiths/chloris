@@ -28,6 +28,7 @@ SvelteKit (TypeScript, Node adapter), Tailwind CSS with shadcn-svelte, SQLite wi
 - Put an HTTPS reverse proxy in front of it (Caddy, a Cloudflare Tunnel or similar). Passkeys and push notifications need a real domain with a valid certificate.
 - The database and photos live in folders you choose, so photos can sit on a separate drive.
 - Email (SMTP) is optional. Without it there's no daily digest, and the command-line tool prints one-time sign-in links: `node build/cli sign-in-link you@example.com`.
+- Backups: `node build/cli backup /mnt/backups/chloris --keep 14`, from cron or a systemd timer, copies the database and then the photos into a new folder, linking photos already in the previous backup rather than copying them again. `node build/cli check` checks the database and that every photo's files are there.
 
 [.env.example](.env.example) lists the settings, and [compose.example.yaml](compose.example.yaml) is a starting point for Docker Compose. Install guides will follow with version 1.
 

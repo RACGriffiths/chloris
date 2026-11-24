@@ -4,6 +4,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
+import { fileTimestamp } from './paths';
 
 export interface MigrationResult {
 	/** How many migrations were applied. */
@@ -21,7 +22,7 @@ interface MigrateOptions {
 }
 
 /** Drizzle's bookkeeping table: one row per applied migration, keyed by its journal timestamp. */
-const MIGRATIONS_TABLE = '__drizzle_migrations';
+export const MIGRATIONS_TABLE = '__drizzle_migrations';
 
 /** Counts migrations Drizzle would apply, using the same rule as its migrator. */
 function countPending(sqlite: BetterSqlite3.Database, migrationsFolder: string): number {
@@ -62,11 +63,7 @@ export async function migrateWithBackup({
 	let backupFile: string | null = null;
 	if (hasTables(sqlite)) {
 		fs.mkdirSync(backupsDir, { recursive: true });
-		const stamp = now
-			.toISOString()
-			.replaceAll(':', '-')
-			.replace(/\.\d+Z$/, 'Z');
-		backupFile = path.join(backupsDir, `chloris-${stamp}-before-migration.db`);
+		backupFile = path.join(backupsDir, `chloris-${fileTimestamp(now)}-before-migration.db`);
 		await sqlite.backup(backupFile);
 	}
 

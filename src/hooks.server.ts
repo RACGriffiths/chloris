@@ -23,8 +23,8 @@ const UPLOAD_BODY_BYTES = MAX_PHOTO_BYTES + 1024 * 1024;
 /**
  * Runs once when the server starts: validates the configuration, checks the photo folder, opens
  * the database and applies any migrations (after a backup), sets up sign-in, and starts the
- * background jobs: the daily digest, when email is on. If any of it fails, the server refuses to
- * start.
+ * background jobs: the daily digest, when email is on, and removing deleted photos after the grace
+ * period. If any of it fails, the server refuses to start.
  */
 export const init: ServerInit = async () => {
 	if (building) return;
@@ -62,7 +62,11 @@ export const init: ServerInit = async () => {
 		}
 	});
 
-	startJobs({ mailer, origin: config.origin });
+	startJobs({
+		mailer,
+		origin: config.origin,
+		photoDeleteGraceDays: config.photoDeleteGraceDays
+	});
 
 	// Emitted by the Node adapter once it has stopped serving requests.
 	process.once('sveltekit:shutdown', () => {

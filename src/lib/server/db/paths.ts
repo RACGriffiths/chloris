@@ -10,3 +10,13 @@ export const MIGRATIONS_DIR = 'src/lib/server/db/migrations';
 export const databaseFile = (dataDir: string) => path.join(dataDir, 'chloris.db');
 
 export const backupsDir = (dataDir: string) => path.join(dataDir, 'backups');
+
+/**
+ * A UTC time for a file or folder name, to the second, with no colons (Windows and some shares
+ * refuse them): `2026-11-24T03-00-00Z`. Names made with it sort in time order.
+ */
+export const fileTimestamp = (now: Date) =>
+	now
+		.toISOString()
+		.replaceAll(':', '-')
+		.replace(/\.\d+Z$/, 'Z');

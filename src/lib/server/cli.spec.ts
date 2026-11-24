@@ -66,3 +66,89 @@ describe('sign-in-link', () => {
 		expect(fs.existsSync(env.DATA_DIR)).toBe(false);
 	});
 });
+
+describe('backup', () => {
+	let destination: string;
+
+	beforeEach(async () => {
+		// The server makes the database and the default photo folder when it first starts.
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		fs.mkdirSync(path.join(env.DATA_DIR, 'photos'));
+		destination = path.join(root, 'backups');
+		fs.mkdirSync(destination);
+		logged = [];
+	});
+
+	it('backs up into a new folder and says what it did', async () => {
+		expect(await main(['backup', destination, '--keep', '7'], env, out)).toBe(0);
+
+		const [folder] = fs.readdirSync(destination);
+		expect(folder).toMatch(/^chloris-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ$/);
+		expect(logged.join('\n')).toContain(`Backed up to ${path.join(destination, folder)}`);
+		expect(logged.join('\n')).toMatch(/Database: copied and checked \(\d+(\.\d)? KB\)\./);
+		expect(logged.join('\n')).toContain('Photos: copied 0 files (0 bytes).');
+		expect(errors).toEqual([]);
+	});
+
+	it("says when the backup folder doesn't exist", async () => {
+		const missing = path.join(root, 'mnt', 'backups');
+
+		expect(await main(['backup', missing], env, out)).toBe(1);
+		expect(errors).toEqual([
+			`The backup folder ${missing} doesn't exist. Mount the drive or create the folder, then try again.`
+		]);
+	});
+
+	it("says when there's no database, rather than making an empty one", async () => {
+		const elsewhere = { ...env, DATA_DIR: path.join(root, 'elsewhere') };
+
+		expect(await main(['backup', destination], elsewhere, out)).toBe(1);
+		expect(errors[0]).toContain(`there is no database at ${path.join(root, 'elsewhere')}`);
+		expect(fs.existsSync(elsewhere.DATA_DIR)).toBe(false);
+	});
+
+	it('explains how to use it when the arguments are wrong', async () => {
+		expect(await main(['backup'], env, out)).toBe(2);
+		expect(await main(['backup', destination, 'more'], env, out)).toBe(2);
+		expect(await main(['backup', destination, '--name', 'x'], env, out)).toBe(2);
+		expect(await main(['backup', destination, '--keep', '0'], env, out)).toBe(2);
+		expect(await main(['backup', destination, '--keep', 'all'], env, out)).toBe(2);
+		expect(await main(['sign-in-link', 'a@example.com', '--keep', '2'], env, out)).toBe(2);
+		expect(errors.every((message) => message.endsWith(USAGE))).toBe(true);
+		expect(fs.readdirSync(destination)).toEqual([]);
+	});
+});
+
+describe('check', () => {
+	beforeEach(async () => {
+		await main(['sign-in-link', 'owner@example.com'], env, out);
+		logged = [];
+	});
+
+	it('says all is well when it is', async () => {
+		fs.mkdirSync(path.join(env.DATA_DIR, 'photos'));
+
+		expect(await main(['check'], env, out)).toBe(0);
+		expect(logged.join('\n')).toBe(
+			[
+				'Database: no problems found.',
+				`Photos: 0 photos in the database, and 0 files in ${path.join(env.DATA_DIR, 'photos')}.`,
+				'',
+				'All is well.'
+			].join('\n')
+		);
+	});
+
+	it("says when the photo folder isn't there", async () => {
+		const photos = path.join(root, 'mnt', 'photos');
+
+		expect(await main(['check'], { ...env, PHOTOS_DIR: photos }, out)).toBe(1);
+		expect(errors.join('\n')).toContain(`The photo folder ${photos} doesn't exist.`);
+		expect(errors.join('\n')).toMatch(/Found problems: see above\.$/);
+	});
+
+	it('takes no arguments', async () => {
+		expect(await main(['check', 'now'], env, out)).toBe(2);
+		expect(await main(['check', '--keep', '1'], env, out)).toBe(2);
+	});
+});
