@@ -15,6 +15,7 @@ import {
 	logCare,
 	undoCare
 } from '#lib/server/data/care-events.js';
+import { addPhoto, listPhotos, photoInput } from '#lib/server/data/photos.js';
 import { getPlant } from '#lib/server/data/plants.js';
 import {
 	MAX_SNOOZE_DAYS,
@@ -27,17 +28,35 @@ import { fieldErrors, textField, textFields } from '#lib/server/forms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
 import { can } from '#lib/server/permissions/index.js';
 import type { Home } from '#lib/server/data/homes.js';
+import type { PhotoProblem } from '#lib/server/photos/process.js';
+import { MAX_PHOTO_BYTES } from '#lib/photos.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
- * A plant's page: its details, its care schedules with what's due, and its care history (D31,
- * D32). Photos and measurements come with later items. Logging, checking, snoozing and undoing
- * care happen here; schedules are added and changed on their own pages.
+ * A plant's page: its details, its care schedules with what's due, its care history (D31, D32)
+ * and its photos (D38). Measurements come with a later item. Logging, checking, snoozing and
+ * undoing care, and adding photos, happen here; schedules are added and changed on their own
+ * pages.
  */
 
 /** How much care history the page shows before "Show all". */
 const HISTORY_LIMIT = 20;
 const ALL_HISTORY = 10_000;
+
+const MAX_MEGABYTES = MAX_PHOTO_BYTES / 1024 / 1024;
+
+/** Why a photo wasn't added, for the person who sent it. */
+const PHOTO_PROBLEMS: Record<PhotoProblem | 'too-big-for-server' | 'none', string> = {
+	none: 'Choose a photo.',
+	'too-big': `That photo is too big. Choose one under ${MAX_MEGABYTES} MB.`,
+	// The Node adapter's BODY_SIZE_LIMIT is lower than Chloris needs (D37).
+	'too-big-for-server':
+		'That photo is bigger than this server accepts. Whoever runs it can raise BODY_SIZE_LIMIT to 25M.',
+	heic: "That photo is in HEIC format, which Chloris can't read. Choose a JPEG instead.",
+	unsupported: 'Choose a photo in JPEG, PNG or WebP format.',
+	'too-many-pixels': 'That photo has too many pixels to handle. Choose a smaller one.',
+	unreadable: "That photo couldn't be read. It may be damaged; try another."
+};
 
 /** The plant in the URL, if it's in the user's home; otherwise the request ends with a 404. */
 function plantIn(home: Home, plantId: string) {
@@ -56,6 +75,7 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 	const schedules = listSchedules(home.id, plant.id, now);
 	const showAll = url.searchParams.get('history') === 'all';
 	const history = listCareEvents(home.id, plant.id, showAll ? ALL_HISTORY : HISTORY_LIMIT);
+	const photos = listPhotos(home.id, plant.id);
 
 	return {
 		plant: { ...plant, acquired: plant.acquiredOn ? formatCalendarDate(plant.acquiredOn) : null },
@@ -83,6 +103,14 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 			yours: event.userId === user.id
 		})),
 		moreHistory: history.more,
+		photos: photos.map((photo) => {
+			const day = relativeDay(calendarDate(photo.takenAt, zone), today);
+			return {
+				id: photo.id,
+				caption: photo.caption,
+				taken: `${day.charAt(0).toUpperCase()}${day.slice(1)}`
+			};
+		}),
 		/** Limits for the date fields: care can't be logged in the future, nor snoozed too far. */
 		latest: `${today}T23:59`,
 		noteLimit: MAX_NOTE_LENGTH,
@@ -90,7 +118,8 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 		snoozeTo: addDays(today, MAX_SNOOZE_DAYS),
 		canEdit: can(user, home.id, 'plant:edit'),
 		canLog: can(user, home.id, 'care:log'),
-		canConfigure: can(user, home.id, 'home:configure')
+		canConfigure: can(user, home.id, 'home:configure'),
+		canAddPhoto: can(user, home.id, 'photo:add')
 	};
 };
 
@@ -155,6 +184,40 @@ export const actions = {
 		}
 		const today = calendarDate(new Date(), home.timeZone);
 		return { message: `Snoozed ${taskNoun(task)} until ${formatNearDate(result.until, today)}.` };
+	},
+
+	/** Adds a photo: resized by the browser once JavaScript has loaded, the original before. */
+	addPhoto: async ({ locals, params, request }) => {
+		const { user, home } = requireHome(locals, 'photo:add');
+		const plant = plantIn(home, params.plantId);
+		let form: FormData;
+		try {
+			form = await request.formData();
+		} catch (problem) {
+			// The Node adapter stops reading a request bigger than BODY_SIZE_LIMIT with a 413.
+			if ((problem as { status?: unknown }).status !== 413) throw problem;
+			const errors = { photo: PHOTO_PROBLEMS['too-big-for-server'] };
+			return fail(413, { photo: { values: { caption: '' }, errors } });
+		}
+
+		const values = textFields(form, photoInput.keyof().options);
+		const parsed = photoInput.safeParse(values);
+		if (!parsed.success) {
+			return fail(400, { photo: { values, errors: fieldErrors(parsed.error) } });
+		}
+		const file = form.get('photo');
+		if (!(file instanceof File) || file.size === 0) {
+			return fail(400, { photo: { values, errors: { photo: PHOTO_PROBLEMS.none } } });
+		}
+
+		const bytes = new Uint8Array(await file.arrayBuffer());
+		const result = await addPhoto(home.id, user.id, plant.id, values, bytes);
+		if (!result.ok) {
+			if (result.reason === 'not-found') error(404, 'Not found');
+			else
+				return fail(400, { photo: { values, errors: { photo: PHOTO_PROBLEMS[result.reason] } } });
+		}
+		return { photoAdded: 'Photo added.' };
 	},
 
 	unsnooze: async ({ locals, params, request }) => {

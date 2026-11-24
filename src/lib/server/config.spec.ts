@@ -27,6 +27,8 @@ describe('parseConfig', () => {
 			host: '0.0.0.0',
 			dataDir: path.resolve('data'),
 			photosDir: path.resolve('data', 'photos'),
+			photosDirSet: false,
+			bodySizeLimitBytes: 512 * 1024,
 			smtp: null,
 			push: null,
 			photoDeleteGraceDays: 30
@@ -97,13 +99,22 @@ describe('parseConfig', () => {
 			photosDir: '/srv/chloris/photos'
 		});
 		expect(
-			parseConfig({ ...minimal, DATA_DIR: '/srv/chloris', PHOTOS_DIR: '/mnt/photos' }).photosDir
-		).toBe('/mnt/photos');
+			parseConfig({ ...minimal, DATA_DIR: '/srv/chloris', PHOTOS_DIR: '/mnt/photos' })
+		).toMatchObject({ photosDir: '/mnt/photos', photosDirSet: true });
 	});
 
 	it('accepts the Node adapter body size formats', () => {
-		for (const value of ['25M', '512K', '1048576', 'Infinity']) {
-			expect(parseConfig({ ...minimal, BODY_SIZE_LIMIT: value }).bodySizeLimit).toBe(value);
+		for (const [value, bytes] of [
+			['25M', 25 * 1024 * 1024],
+			['512k', 512 * 1024],
+			['1G', 1024 ** 3],
+			['1048576', 1048576],
+			['Infinity', Infinity]
+		] as const) {
+			expect(parseConfig({ ...minimal, BODY_SIZE_LIMIT: value })).toMatchObject({
+				bodySizeLimit: value,
+				bodySizeLimitBytes: bytes
+			});
 		}
 		expect(problemsFor({ ...minimal, BODY_SIZE_LIMIT: '512kb' })).toEqual([
 			'BODY_SIZE_LIMIT: must be a number of bytes, optionally ending in K, M or G'

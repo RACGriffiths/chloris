@@ -11,5 +11,7 @@ export const serverEnv = {
 	ORIGIN: origin,
 	BETTER_AUTH_SECRET: 'end-to-end-tests-only-not-a-real-secret',
 	// Playwright empties test-results before each run, so every run starts with a new database.
-	DATA_DIR: 'test-results/e2e-data'
+	DATA_DIR: 'test-results/e2e-data',
+	// As the Docker image sets it, so originals sent without JavaScript fit.
+	BODY_SIZE_LIMIT: '25M'
 };

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import ImageIcon from '@lucide/svelte/icons/image';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
 	import Undo2Icon from '@lucide/svelte/icons/undo-2';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
+	import AddPhotoForm from '#lib/components/add-photo-form.svelte';
 	import CareIcon from '#lib/components/care-icon.svelte';
 	import CareSchedule from '#lib/components/care-schedule.svelte';
 	import LogCareForm from '#lib/components/log-care-form.svelte';
@@ -30,12 +30,6 @@
 
 	/** What later versions will add to this page. */
 	const comingSoon = [
-		{
-			id: 'photos',
-			title: 'Photos',
-			icon: ImageIcon,
-			text: 'Photos will line up here in the order they were taken, so you can see it grow.'
-		},
 		{
 			id: 'measurements',
 			title: 'Measurements',
@@ -262,6 +256,49 @@
 		<p class="mt-2 text-sm text-muted-foreground">
 			Nothing logged yet. Each watering, feed, repot and check will be listed here, latest first.
 		</p>
+	{/if}
+</section>
+
+<section class="mt-8" aria-labelledby="photos">
+	<h2 id="photos" class="text-lg font-semibold">Photos</h2>
+	{#if form?.photoAdded}
+		<p role="status" class="mt-3 rounded-lg bg-secondary px-3 py-2 text-sm">{form.photoAdded}</p>
+	{/if}
+
+	{#if data.photos.length > 0}
+		<!-- Three square thumbnails to a row. `object-cover` fills each square, cropping the edges. -->
+		<ul class="mt-3 grid grid-cols-3 gap-2" aria-label="Photos of {plant.nickname}">
+			{#each data.photos as photo (photo.id)}
+				<li class="min-w-0">
+					<!-- The full size is a plain image, not a page, so the browser loads it itself. -->
+					<a href={resolve(`photos/${photo.id}/full`)} data-sveltekit-reload class="block">
+						<!-- `loading="lazy"` waits to fetch thumbnails until they're scrolled near. -->
+						<img
+							src={resolve(`photos/${photo.id}/thumb`)}
+							alt={photo.caption ?? `${plant.nickname}, ${photo.taken.toLowerCase()}`}
+							width="400"
+							height="400"
+							loading="lazy"
+							class="aspect-square w-full rounded-md bg-muted object-cover"
+						/>
+					</a>
+					<p class="mt-1 truncate text-xs text-muted-foreground">{photo.taken}</p>
+					{#if photo.caption}
+						<p class="truncate text-xs">{photo.caption}</p>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	{:else}
+		<p class="mt-2 text-sm text-muted-foreground">
+			No photos yet. They'll line up here, the latest first, so you can see {plant.nickname} grow.
+		</p>
+	{/if}
+
+	{#if data.canAddPhoto}
+		<div class="mt-3">
+			<AddPhotoForm values={form?.photo?.values} errors={form?.photo?.errors} />
+		</div>
 	{/if}
 </section>
 

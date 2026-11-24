@@ -1,5 +1,5 @@
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
-import { building } from '$app/env';
+import { building, dev } from '$app/env';
 import * as env from '$app/env/private';
 import { getRequestEvent } from '$app/server';
 import { signInLinkEmail } from '#lib/server/auth/emails.js';
@@ -13,16 +13,29 @@ import { getAuth, initAuth } from '#lib/server/auth/index.js';
 import { initConfig } from '#lib/server/config.js';
 import { closeDatabase, getConnection, initDatabase } from '#lib/server/db/index.js';
 import { createSmtpMailer } from '#lib/server/notify/mailer.js';
+import { initPhotoStorage } from '#lib/server/photos/storage.js';
+import { MAX_PHOTO_BYTES } from '#lib/photos.js';
+
+/** Room for a photo of the largest size accepted, plus the rest of the form it comes in. */
+const UPLOAD_BODY_BYTES = MAX_PHOTO_BYTES + 1024 * 1024;
 
 /**
- * Runs once when the server starts: validates the configuration, opens the database and applies
- * any migrations (after a backup), then sets up sign-in. If any of it fails, the server refuses
- * to start.
+ * Runs once when the server starts: validates the configuration, checks the photo folder, opens
+ * the database and applies any migrations (after a backup), then sets up sign-in. If any of it
+ * fails, the server refuses to start.
  */
 export const init: ServerInit = async () => {
 	if (building) return;
 
 	const config = initConfig(env);
+	initPhotoStorage(config.photosDir, { create: !config.photosDirSet });
+	// The development server has no limit; the Node adapter's default is 512K (D37).
+	if (!dev && config.bodySizeLimitBytes < UPLOAD_BODY_BYTES) {
+		console.warn(
+			`BODY_SIZE_LIMIT is ${config.bodySizeLimit ?? 'not set (512K)'}, so larger photos can't be ` +
+				'uploaded. Set BODY_SIZE_LIMIT=25M, as the Docker image does.'
+		);
+	}
 	const { applied, backupFile } = await initDatabase(config.dataDir);
 	if (applied > 0) {
 		console.info(

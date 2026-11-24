@@ -48,8 +48,8 @@ All configuration comes from environment variables. `ORIGIN`, `PORT`, `HOST`, `B
 | `PORT`, `HOST` | `3000`, `0.0.0.0` | Where the Node server listens. |
 | `BETTER_AUTH_SECRET` | required | Secret for signing sessions and tokens: at least 32 random characters. |
 | `DATA_DIR` | `./data` | Folder holding the SQLite database. |
-| `PHOTOS_DIR` | `$DATA_DIR/photos` | Folder holding photo files. Can be a mounted drive. |
-| `BODY_SIZE_LIMIT` | adapter default `512kb` | Maximum request size. Must be raised for photo uploads; the Docker image sets `25M`. |
+| `PHOTOS_DIR` | `$DATA_DIR/photos` | Folder holding photo files. Can be a mounted drive. When set, it must already exist: Chloris won't make it, in case the drive isn't mounted (D37). |
+| `BODY_SIZE_LIMIT` | adapter default `512kb` | Maximum request size. Must be raised for photo uploads, to at least `21M`: Chloris warns at start-up if it's lower. The Docker image sets `25M`. |
 | `ADDRESS_HEADER`, `XFF_DEPTH` | not set | Which header carries the visitor's IP behind a proxy, and how many trusted proxies are in front. Needed for rate limiting. Behind one Caddy: `X-Forwarded-For` and `1`. Check the values against the real proxy chain, because these headers can be spoofed. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | not set; port `587` | Outgoing email. Leave unset to switch email off. Needs at least the host and sender; the user and password go together. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | not set | Web push keys, generated once with a CLI command. Push is off without them; set all three or none. The subject is a `mailto:` or `https://` URL. |
@@ -86,12 +86,12 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Membership | User + home | Role, expires at | Expiry is used for sitters. |
 | Invite | Home | Role, token hash, created by, expires at, used at, used by | A link that works once, for 7 days. Only a hash of its token is stored. |
 | Room | Home | Name (unique in the home, ignoring case), indoor or outdoor, light level | Light: low, medium, bright, direct sun, or not given. Only an empty room can be deleted (D30). |
-| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status and parent plant are stored from version 1, before their screens; cover photo comes with photos (D29). Plants aren't deleted (D30). |
-| Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, mist, prune, repot, pest treatment, move, checked. A check records which task it was for. Done at can be earlier than when it was logged. Undoing deletes the event (D32). The user becomes empty if their account is deleted, so the home keeps its history. The photo comes with photos (D33). |
+| Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status, parent plant and cover photo are stored from version 1, before their screens (D29, D38). Plants aren't deleted (D30). |
+| Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, mist, prune, repot, pest treatment, move, checked. A check records which task it was for. Done at can be earlier than when it was logged. Undoing deletes the event (D32). The user becomes empty if their account is deleted, so the home keeps its history. The photo is stored before its screens, which come with the photo timeline (D33, D38). |
 | Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | One per task on a plant; moves and checks aren't scheduled. Next due is a calendar date in the home's time zone, the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task since then + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. Doing or checking the task ends its snooze (D31). The winter interval is stored from version 1 and used from version 2 (D33). |
 | Measurement type | Home | Name, unit | E.g. height in cm, leaf count. |
 | Measurement | Plant, type, user | Value, taken at, optional photo | Charted per type. |
-| Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped. Files are write-once. |
+| Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped (D36). Files are write-once, named by the file key rather than the photo's id (D35). The user becomes empty if their account is deleted. |
 | Push subscription | User | Endpoint, keys, device name | Removed when the push service reports it gone. |
 | Notification settings | User + home | Channels, digest time, quiet hours | One set per home. |
 | Digest log | User + home | Date, channel, sent at | Stops a restart from sending a digest twice. |
@@ -171,6 +171,7 @@ The Today view is the home screen and the care log is the core. Everything else 
 - A side-by-side or slider comparison of any two dates.
 - When adding a photo, the previous one shows faintly over the camera view to keep the framing consistent.
 - Any photo can be set as the plant's cover.
+- Until the timeline arrives, a plant's page lists its photos as thumbnails, the latest taken first, each opening the full size, with a form to add one (D38).
 
 ### Measurements
 
@@ -208,9 +209,9 @@ Each person gets one daily digest per home, at a time they choose, by push or em
 
 The database and the photos can live on different drives and be backed up at different times. The design keeps them consistent anyway.
 
-- **Write-once files.** Each upload gets a new, unguessable file name and is never overwritten. Each photo is stored as a thumbnail, a medium size and the full size.
+- **Write-once files.** Each upload gets a new, unguessable file name and is never overwritten. Each photo is stored as JPEGs in three sizes: a 400-pixel square thumbnail, up to 1280 pixels and up to 2560 pixels on the longest side, in a folder for its home (D35).
 - **Delayed deletion.** Deleting a photo sets `deleted at` in the database. Its files are removed only after `PHOTO_DELETE_GRACE_DAYS`.
-- **Clean uploads.** The browser reads the date the photo was taken, then resizes it and strips its metadata before upload, sending the date separately. Without JavaScript the original is uploaded and the server reads the date itself. Either way, the server strips GPS and other metadata again, re-encodes the image, enforces size limits and an allow-list of types. HEIC is not on the list, because sharp's standard build can't read it. iPhones normally convert photos to JPEG when uploading from a web page, and the browser's resize produces JPEG anyway, so the server rejects HEIC with a message asking for a JPEG.
+- **Clean uploads.** The browser reads the date the photo was taken, then resizes it to 2560 pixels and strips its metadata before upload, sending the date separately (D36). Without JavaScript the original is uploaded and the server reads the date itself. Either way, the server strips GPS and other metadata again, re-encodes the image, enforces size limits (20 MB, 100 megapixels) and an allow-list of types (JPEG, PNG and WebP, judged by the file's contents). HEIC is not on the list, because sharp's standard build can't read it. iPhones normally convert photos to JPEG when uploading from a web page, and the browser's resize produces JPEG anyway, so the server rejects HEIC with a message asking for a JPEG.
 
 Because photo files are only ever added, a photo backup taken after a database backup holds every photo that database refers to.
 

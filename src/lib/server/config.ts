@@ -33,8 +33,12 @@ export interface Config {
 	dataDir: string;
 	/** Absolute path of the folder holding photo files. */
 	photosDir: string;
+	/** Whether `PHOTOS_DIR` was set. If so, the folder must already exist (D37). */
+	photosDirSet: boolean;
 	/** Raw `BODY_SIZE_LIMIT`, as read by the Node adapter. */
 	bodySizeLimit?: string;
+	/** The largest request the Node adapter accepts, in bytes, from `BODY_SIZE_LIMIT`. */
+	bodySizeLimitBytes: number;
 	addressHeader?: string;
 	xffDepth?: number;
 	/** `null` when email is switched off. */
@@ -52,6 +56,17 @@ export class ConfigError extends Error {
 }
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** The Node adapter's own default for `BODY_SIZE_LIMIT`. */
+const ADAPTER_BODY_SIZE_LIMIT = '512K';
+
+/** A `BODY_SIZE_LIMIT` value in bytes, read the way the Node adapter reads it. */
+export function parseBytes(value: string): number {
+	if (/^infinity$/i.test(value)) return Infinity;
+	const multiplier: Record<string, number> = { K: 1024, M: 1024 ** 2, G: 1024 ** 3 };
+	const unit = value.at(-1)?.toUpperCase() ?? '';
+	return unit in multiplier ? Number(value.slice(0, -1)) * multiplier[unit] : Number(value);
+}
 
 const required = (message = 'is required') =>
 	z.string({ error: (issue) => (issue.input === undefined ? message : 'must be text') });
@@ -185,7 +200,9 @@ export function parseConfig(env: Env): Config {
 		authSecret: values.BETTER_AUTH_SECRET,
 		dataDir,
 		photosDir: values.PHOTOS_DIR ? path.resolve(values.PHOTOS_DIR) : path.join(dataDir, 'photos'),
+		photosDirSet: values.PHOTOS_DIR !== undefined,
 		bodySizeLimit: values.BODY_SIZE_LIMIT,
+		bodySizeLimitBytes: parseBytes(values.BODY_SIZE_LIMIT ?? ADAPTER_BODY_SIZE_LIMIT),
 		addressHeader: values.ADDRESS_HEADER,
 		xffDepth: values.XFF_DEPTH,
 		smtp:
