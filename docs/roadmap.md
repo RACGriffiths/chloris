@@ -28,7 +28,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Care log (events, backdating, undo) and schedules (intervals, snooze, recheck delay)
 - [x] Today view, including bulk actions
 - [x] Photo pipeline: browser resize, metadata stripping, sharp variants, write-once storage, permission-checked serving
-- [ ] Photo timeline on the plant page, and cover photos
+- [x] Photo timeline on the plant page, and cover photos
 - [ ] Memorial and lifecycle statuses
 - [ ] Daily email digest: scheduler, digest log, quiet hours
 - [ ] Backup command and integrity check

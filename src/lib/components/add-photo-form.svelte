@@ -4,13 +4,14 @@
 	import FieldError from '#lib/components/field-error.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
+	import { chosenPhoto, preparePhotoField } from '#lib/photo-field.js';
 	import { MAX_CAPTION_LENGTH, PHOTO_ACCEPT } from '#lib/photos.js';
 
 	/**
 	 * The form for adding a photo of a plant. It sits closed under the photos and opens by itself
 	 * when the server sends it back with a problem. Before JavaScript loads, it sends the original
 	 * photo; once it has, the browser resizes the photo first and leaves its metadata behind
-	 * (`#lib/photo-upload`), sending the date it was taken separately.
+	 * (`#lib/photo-field`), sending the date it was taken separately.
 	 */
 	let {
 		values,
@@ -28,20 +29,9 @@
 	 * can swap the chosen file in `formData` for the resized copy.
 	 */
 	const prepare: SubmitFunction = async ({ formData }) => {
-		const file = formData.get('photo');
-		if (file instanceof File && file.size > 0) {
+		if (chosenPhoto(formData)) {
 			stage = 'preparing';
-			try {
-				// Loaded only now, so pages don't carry this code until someone adds a photo.
-				const { preparePhoto } = await import('#lib/photo-upload.js');
-				const ready = await preparePhoto(file);
-				if (ready) {
-					formData.set('photo', ready.photo, 'photo.jpg');
-					formData.set('takenAt', ready.takenAt);
-				}
-			} catch {
-				// The original is sent instead, and the server checks it.
-			}
+			await preparePhotoField(formData);
 		}
 		stage = 'sending';
 		return async ({ update }) => {

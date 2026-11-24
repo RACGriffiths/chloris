@@ -137,7 +137,7 @@
 								href={resolve(`plants/${plant.id}`)}
 								class="flex items-center gap-3 p-3 outline-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
 							>
-								<PlantTile id={plant.id} name={plant.nickname} />
+								<PlantTile id={plant.id} name={plant.nickname} photoId={plant.coverPhotoId} />
 								<span class="min-w-0 flex-1">
 									<span class="block truncate font-medium">{plant.nickname}</span>
 									{#if plant.species}
