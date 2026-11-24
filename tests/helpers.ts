@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, type Browser, type Page, type TestInfo } from '@playwright/test';
-import { serverEnv } from './server-env';
+import { origin, serverEnv } from './server-env';
 
 /** Runs the built command-line tool against the test server's database and returns the link. */
 export function signInLink(email: string): string {
@@ -84,4 +84,17 @@ export async function joinWithNewAccount(page: Page, link: string, homeName: str
 	await expect(page.getByRole('heading', { name: `Welcome, ${name}` })).toBeVisible();
 	await page.getByRole('link', { name: 'Not now' }).click();
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(homeName);
+}
+
+/** The id in the page's address, such as a plant's after it's added. */
+export function idFromUrl(page: Page, pattern: RegExp): string {
+	const id = pattern.exec(new URL(page.url()).pathname)?.[1];
+	if (!id) throw new Error(`No id in ${page.url()}`);
+	return id;
+}
+
+/** Sends a form to an action directly, as someone could without the page, and returns the status. */
+export async function post(page: Page, path: string, form: Record<string, string>) {
+	const response = await page.request.post(path, { form, headers: { origin } });
+	return response.status();
 }
