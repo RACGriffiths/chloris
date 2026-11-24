@@ -7,6 +7,7 @@ import {
 	uniqueIndex,
 	type AnySQLiteColumn
 } from 'drizzle-orm/sqlite-core';
+import { CARE_TYPES, TASKS } from '../../care';
 import { PLANT_STATUSES } from '../../plants';
 import { LIGHT_LEVELS, ROOM_SETTINGS } from '../../rooms';
 
@@ -293,5 +294,71 @@ export const plant = sqliteTable(
 		index('plant_home_id_idx').on(table.homeId),
 		index('plant_room_id_idx').on(table.roomId),
 		index('plant_parent_id_idx').on(table.parentId)
+	]
+);
+
+// The care log and schedules (docs/spec.md, Data model; D31 to D33).
+
+/**
+ * One piece of care given to a plant: a watering, a feed, a check that found a task wasn't
+ * needed. When each task is next due is worked out from these (CLAUDE.md rule 4), so undoing one
+ * deletes it and the due date follows.
+ */
+export const careEvent = sqliteTable(
+	'care_event',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		plantId: text('plant_id')
+			.notNull()
+			.references(() => plant.id, { onDelete: 'cascade' }),
+		/** Who logged it; `null` once their account is deleted, so the home keeps its history. */
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		type: text('type', { enum: CARE_TYPES }).notNull(),
+		/** For a check, the task that wasn't needed; `null` for every other type. */
+		checkedTask: text('checked_task', { enum: TASKS }),
+		/** When the care was given, which may be earlier than when it was logged (backdating). */
+		doneAt: timestamp('done_at').notNull(),
+		note: text('note'),
+		createdAt: createdAt()
+	},
+	(table) => [
+		index('care_event_home_id_idx').on(table.homeId, table.doneAt),
+		index('care_event_plant_id_idx').on(table.plantId, table.doneAt),
+		index('care_event_plant_type_idx').on(table.plantId, table.type, table.doneAt)
+	]
+);
+
+/**
+ * How often a plant needs one task, such as watering every 7 days. A plant has at most one
+ * schedule per task. When it's next due is never stored: it comes from the care log (D20, D31).
+ */
+export const careSchedule = sqliteTable(
+	'care_schedule',
+	{
+		id: text('id').primaryKey(),
+		homeId: text('home_id')
+			.notNull()
+			.references(() => home.id, { onDelete: 'cascade' }),
+		plantId: text('plant_id')
+			.notNull()
+			.references(() => plant.id, { onDelete: 'cascade' }),
+		task: text('task', { enum: TASKS }).notNull(),
+		intervalDays: integer('interval_days').notNull(),
+		/** The interval in the home's winter months. Stored from version 1; screens come later (D33). */
+		winterIntervalDays: integer('winter_interval_days'),
+		/** How long "checked, not needed" puts the task off (D13). */
+		recheckDays: integer('recheck_days').notNull().default(2),
+		/** `YYYY-MM-DD`. Doing or checking the task ends a snooze (D31). */
+		snoozedUntil: text('snoozed_until'),
+		/** Stands in for the last time the task was done until it's first logged (D20). */
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(table) => [
+		index('care_schedule_home_id_idx').on(table.homeId),
+		uniqueIndex('care_schedule_plant_task_idx').on(table.plantId, table.task)
 	]
 );

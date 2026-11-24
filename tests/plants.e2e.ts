@@ -1,13 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createInvite, joinWithNewAccount, newOwner, newPhone } from './helpers';
-import { origin } from './server-env';
-
-/** The id at the end of the page's address, such as a plant's after it's added. */
-function idFromUrl(page: Page, pattern: RegExp): string {
-	const id = pattern.exec(new URL(page.url()).pathname)?.[1];
-	if (!id) throw new Error(`No id in ${page.url()}`);
-	return id;
-}
+import { createInvite, idFromUrl, joinWithNewAccount, newOwner, newPhone, post } from './helpers';
 
 /** On the Rooms page: adds a room and waits for it to be listed. */
 async function addRoom(page: Page, name: string, choices: { outdoor?: boolean } = {}) {
@@ -29,12 +21,6 @@ async function addPlant(page: Page, nickname: string, room: string, tags = '') {
 	await page.getByRole('button', { name: 'Add plant' }).click();
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(nickname);
 	return idFromUrl(page, /^\/plants\/([\w-]+)$/);
-}
-
-/** Sends a form to an action directly, as someone could without the page, and returns the status. */
-async function post(page: Page, path: string, form: Record<string, string>) {
-	const response = await page.request.post(path, { form, headers: { origin } });
-	return response.status();
 }
 
 const plantsLink = (page: Page) =>

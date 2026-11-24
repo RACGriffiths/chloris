@@ -87,8 +87,8 @@ Every domain record hangs off a home, so one rule protects everything: a query o
 | Invite | Home | Role, token hash, created by, expires at, used at, used by | A link that works once, for 7 days. Only a hash of its token is stored. |
 | Room | Home | Name (unique in the home, ignoring case), indoor or outdoor, light level | Light: low, medium, bright, direct sun, or not given. Only an empty room can be deleted (D30). |
 | Plant | Home, room | Nickname, species (free text), acquired on, source, pot, soil, tags, notes, cover photo | Status: active, died, given away, sold, with a date and a note. Optional parent plant. Tags are lower-case labels stored as a list on the plant. Status and parent plant are stored from version 1, before their screens; cover photo comes with photos (D29). Plants aren't deleted (D30). |
-| Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, repot, prune, mist, pest treatment, move, checked. A check records which task it was for. |
-| Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | Next due is the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. |
+| Care event | Plant, user | Type, done at, note, optional photo | Types: water, feed, mist, prune, repot, pest treatment, move, checked. A check records which task it was for. Done at can be earlier than when it was logged. Undoing deletes the event (D32). The user becomes empty if their account is deleted, so the home keeps its history. The photo comes with photos (D33). |
+| Care schedule | Plant | Task type, interval in days, optional winter interval, recheck delay (default 2 days), snoozed until, created at | One per task on a plant; moves and checks aren't scheduled. Next due is a calendar date in the home's time zone, the latest of: last matching event + interval (the winter interval in the home's winter months), last check of this task since then + recheck delay, and snoozed until. Until the task is first logged, the creation date stands in for the last event. Doing or checking the task ends its snooze (D31). The winter interval is stored from version 1 and used from version 2 (D33). |
 | Measurement type | Home | Name, unit | E.g. height in cm, leaf count. |
 | Measurement | Plant, type, user | Value, taken at, optional photo | Charted per type. |
 | Photo | Plant, user | File key, taken at, width, height, caption, deleted at | Taken-at comes from the photo's own date, read before its metadata is stripped. Files are write-once. |
@@ -143,7 +143,7 @@ The Today view is the home screen and the care log is the core. Everything else 
 ### Today view
 
 - Shows what is due and overdue, grouped by room, plus what others have already done today.
-- One tap logs a task. A second action, "checked, not needed", records the check and moves the due date on by the plant's recheck delay.
+- One tap logs a task. A second action, "checked, not needed", records the check and moves the due date on by the schedule's recheck delay.
 - Bulk actions, such as watering everything in a room.
 
 ### Plants
@@ -158,6 +158,10 @@ The Today view is the home screen and the care log is the core. Everything else 
 - Each event records who and when, takes an optional note or photo, can be backdated and can be undone.
 - Each task type has its own interval, with an optional winter interval for the months set on the home.
 - Snooze for a day, three days or a chosen date.
+- A plant's page lists its schedules with when each is next due. "Done" logs the task in one tap; once it's due, "Not needed" records a check and "Snooze" puts it off. A snooze can be cancelled.
+- Other care, a note, or care done earlier goes through a "Log other care" form. A time still to come is refused.
+- The person who logged care can undo it: straight after logging, or later from the plant's history, in two taps (D32). The due date goes back with it.
+- Schedules are added, changed and removed on their own pages by those who may configure the home. Removing one keeps the care already logged.
 
 ### Photo timeline
 

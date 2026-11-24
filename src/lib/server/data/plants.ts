@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getConnection, type Db } from '../db';
 import { plant, room } from '../db/schema';
+import { optionalText } from './fields';
 import { byName } from './order';
 
 /**
@@ -44,15 +45,6 @@ export interface PlantSummary {
 	roomId: string;
 	tags: string[];
 }
-
-/** Optional free text: surrounding spaces are trimmed, and an empty value means not given. */
-const optionalText = (max: number, message: string) =>
-	z
-		.string()
-		.trim()
-		.max(max, message)
-		.optional()
-		.transform((value) => value || null);
 
 /**
  * Tags as typed: separated by commas, in lower case, with spaces tidied and repeats dropped.
