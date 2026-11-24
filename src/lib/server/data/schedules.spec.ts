@@ -1,6 +1,6 @@
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { insertUser, useTestDatabase } from '../testing';
+import { insertUser, setPlantStatus, useTestDatabase } from '../testing';
 import { logCare, type CareInput } from './care-events';
 import { createHome } from './homes';
 import { createPlant } from './plants';
@@ -11,6 +11,7 @@ import {
 	deleteSchedule,
 	getSchedule,
 	listSchedules,
+	listTasks,
 	nextDue,
 	snoozeTask,
 	updateSchedule,
@@ -41,12 +42,17 @@ beforeEach(() => {
 	cactus = addPlant(bobHome, 'Cactus');
 });
 
-function addPlant(homeId: string, nickname: string): string {
-	const room = createRoom(homeId, { name: `${nickname}'s room` });
-	if (!room.ok) throw new Error('Room refused');
-	const plant = createPlant(homeId, { nickname, roomId: room.room.id });
+function addPlant(homeId: string, nickname: string, roomId?: string): string {
+	const room = roomId ?? addRoom(homeId, `${nickname}'s room`);
+	const plant = createPlant(homeId, { nickname, roomId: room });
 	if (!plant) throw new Error('Plant refused');
 	return plant.id;
+}
+
+function addRoom(homeId: string, name: string): string {
+	const room = createRoom(homeId, { name });
+	if (!room.ok) throw new Error('Room refused');
+	return room.room.id;
 }
 
 const watering: ScheduleInput = { task: 'water', intervalDays: '7', recheckDays: '2' };
@@ -239,6 +245,55 @@ describe('listSchedules', () => {
 		expect(listSchedules(aliceHome, fern, now).map((s) => s.intervalDays)).toEqual([7]);
 		expect(listSchedules(bobHome, cactus, now).map((s) => s.intervalDays)).toEqual([30]);
 		expect(listSchedules(bobHome, fern, now)).toEqual([]);
+	});
+});
+
+describe('listTasks', () => {
+	it('lists every task in the home, soonest first, with its plant and room', () => {
+		const kitchen = addRoom(aliceHome, 'Kitchen');
+		const ivy = addPlant(aliceHome, 'ivy', kitchen);
+		const basil = addPlant(aliceHome, 'Basil', kitchen);
+		const added = new Date('2026-06-01T09:00:00Z');
+		schedule(aliceHome, ivy, watering, added);
+		schedule(aliceHome, basil, { ...watering, task: 'mist', intervalDays: '3' }, added);
+		schedule(aliceHome, basil, watering, added);
+		schedule(aliceHome, fern, { ...watering, intervalDays: '30' }, added);
+		log(aliceHome, alice, basil, { type: 'mist', doneAt: '2026-06-14T09:00' });
+
+		expect(
+			listTasks(aliceHome, now).map((task) => [task.plantName, task.task, task.daysAway])
+		).toEqual([
+			// Overdue first, by plant name ignoring case, then in task order.
+			['Basil', 'water', -7],
+			['ivy', 'water', -7],
+			['Basil', 'mist', 2],
+			['Fern', 'water', 16]
+		]);
+		expect(listTasks(aliceHome, now)[0]).toMatchObject({
+			plantId: basil,
+			plantName: 'Basil',
+			roomId: kitchen,
+			roomName: 'Kitchen',
+			due: '2026-06-08',
+			dueReason: 'interval'
+		});
+	});
+
+	it('leaves out plants that are no longer active', () => {
+		schedule(aliceHome, fern, watering);
+		setPlantStatus(fern, 'died');
+
+		expect(listTasks(aliceHome, now)).toEqual([]);
+		// The plant's own page still shows its schedules.
+		expect(listSchedules(aliceHome, fern, now)).toHaveLength(1);
+	});
+
+	it("lists only the home's own tasks, never another's", () => {
+		schedule(aliceHome, fern, watering);
+		schedule(bobHome, cactus, { ...watering, intervalDays: '30' });
+
+		expect(listTasks(aliceHome, now).map((task) => task.plantName)).toEqual(['Fern']);
+		expect(listTasks(bobHome, now).map((task) => task.plantName)).toEqual(['Cactus']);
 	});
 });
 

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { TASKS, isTask, type DueReason, type Task } from '../../care';
 import { addDays, calendarDate, daysBetween } from '../../dates';
 import { getConnection, type Db } from '../db';
-import { careEvent, careSchedule, home, plant } from '../db/schema';
+import { careEvent, careSchedule, home, plant, room } from '../db/schema';
+import { compareNames } from './order';
 
 /**
  * Care schedules: how often each plant needs each task, and when it's next due (docs/spec.md,
@@ -42,6 +43,13 @@ export interface ScheduleStatus extends Schedule {
 	dueReason: DueReason;
 	/** How many days from today it's due: 0 for today, negative when overdue. */
 	daysAway: number;
+}
+
+/** A scheduled task on one of the home's plants, as the Today view lists it. */
+export interface HomeTask extends ScheduleStatus {
+	plantName: string;
+	roomId: string;
+	roomName: string;
 }
 
 /** A whole number of days from 1 to `max`, typed into a form. */
@@ -102,7 +110,7 @@ const columns = {
 	snoozedUntil: careSchedule.snoozedUntil
 };
 
-type Tx = Pick<Db, 'select'>;
+export type Tx = Pick<Db, 'select'>;
 
 const inHome = (homeId: string, plantId: string, scheduleId: string) =>
 	and(
@@ -170,40 +178,111 @@ const latest = (type: 'task' | 'check') => sql<number | null>`(
 )`;
 
 /**
- * A plant's schedules in `homeId`, in the order of `TASKS`, each with when it's next due. Empty if
- * the home has no such plant. Callers check `can(user, homeId, 'home:view')` first.
+ * Schedules in `homeId` matching `conditions`, with their plant and room, and when each task was
+ * last done and is next due at `now`. Only plants and rooms in the same home are joined.
  */
-export function listSchedules(homeId: string, plantId: string, now = new Date()): ScheduleStatus[] {
-	const rows = getConnection()
-		.db.select({
+function selectTasks(tx: Tx, homeId: string, conditions: SQL[], now: Date): HomeTask[] {
+	const rows = tx
+		.select({
 			...columns,
 			createdAt: careSchedule.createdAt,
 			timeZone: home.timeZone,
 			lastDone: latest('task'),
-			lastChecked: latest('check')
+			lastChecked: latest('check'),
+			plantName: plant.nickname,
+			roomId: room.id,
+			roomName: room.name
 		})
 		.from(careSchedule)
 		.innerJoin(home, eq(home.id, careSchedule.homeId))
-		.where(and(eq(careSchedule.plantId, plantId), eq(careSchedule.homeId, homeId)))
+		.innerJoin(
+			plant,
+			and(eq(plant.id, careSchedule.plantId), eq(plant.homeId, careSchedule.homeId))
+		)
+		.innerJoin(room, and(eq(room.id, plant.roomId), eq(room.homeId, plant.homeId)))
+		.where(and(eq(careSchedule.homeId, homeId), ...conditions))
 		.all();
 
-	return rows
-		.map(({ createdAt, timeZone, lastDone, lastChecked, ...schedule }) => {
-			const history = {
-				createdAt,
-				lastDone: lastDone === null ? null : new Date(lastDone),
-				lastChecked: lastChecked === null ? null : new Date(lastChecked)
-			};
-			const { due, reason } = nextDue(schedule, history, timeZone);
-			return {
-				...schedule,
-				lastDone: history.lastDone,
-				due,
-				dueReason: reason,
-				daysAway: daysBetween(calendarDate(now, timeZone), due)
-			};
-		})
-		.sort((a, b) => TASKS.indexOf(a.task) - TASKS.indexOf(b.task));
+	return rows.map(({ createdAt, timeZone, lastDone, lastChecked, ...task }) => {
+		const history = {
+			createdAt,
+			lastDone: lastDone === null ? null : new Date(lastDone),
+			lastChecked: lastChecked === null ? null : new Date(lastChecked)
+		};
+		const { due, reason } = nextDue(task, history, timeZone);
+		return {
+			...task,
+			lastDone: history.lastDone,
+			due,
+			dueReason: reason,
+			daysAway: daysBetween(calendarDate(now, timeZone), due)
+		};
+	});
+}
+
+const taskOrder = (a: { task: Task }, b: { task: Task }) =>
+	TASKS.indexOf(a.task) - TASKS.indexOf(b.task);
+
+/**
+ * A plant's schedules in `homeId`, in the order of `TASKS`, each with when it's next due. Empty if
+ * the home has no such plant. Callers check `can(user, homeId, 'home:view')` first.
+ */
+export function listSchedules(homeId: string, plantId: string, now = new Date()): ScheduleStatus[] {
+	return selectTasks(getConnection().db, homeId, [eq(careSchedule.plantId, plantId)], now)
+		.map((task) => ({
+			id: task.id,
+			plantId: task.plantId,
+			task: task.task,
+			intervalDays: task.intervalDays,
+			recheckDays: task.recheckDays,
+			snoozedUntil: task.snoozedUntil,
+			lastDone: task.lastDone,
+			due: task.due,
+			dueReason: task.dueReason,
+			daysAway: task.daysAway
+		}))
+		.sort(taskOrder);
+}
+
+/**
+ * Every scheduled task on the active plants in `homeId`, with when each is next due: soonest
+ * first, then by plant name and in the order of `TASKS`. The Today view shows those due today or
+ * earlier. Callers check `can(user, homeId, 'home:view')` first.
+ */
+export function listTasks(homeId: string, now = new Date()): HomeTask[] {
+	return selectTasks(getConnection().db, homeId, [eq(plant.status, 'active')], now).sort(
+		(a, b) =>
+			a.daysAway - b.daysAway ||
+			compareNames(a.plantName, b.plantName) ||
+			a.plantId.localeCompare(b.plantId) ||
+			taskOrder(a, b)
+	);
+}
+
+/**
+ * One task's schedules on some of the active plants in `homeId`, with when each is due at `now`,
+ * for logging that task on them together (`logDueTasks` in `care-events.ts`). Plants that aren't
+ * in the home, aren't active or have no schedule for the task are left out. Callers check
+ * `can()` first.
+ */
+export function findTasks(
+	tx: Tx,
+	homeId: string,
+	task: Task,
+	plantIds: string[],
+	now: Date
+): HomeTask[] {
+	if (plantIds.length === 0) return [];
+	return selectTasks(
+		tx,
+		homeId,
+		[
+			eq(plant.status, 'active'),
+			eq(careSchedule.task, task),
+			inArray(careSchedule.plantId, plantIds)
+		],
+		now
+	);
 }
 
 /** One schedule on a plant in `homeId`, or `null`. Callers check `home:view` first. */

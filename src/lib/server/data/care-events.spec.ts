@@ -1,7 +1,17 @@
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { insertUser, useTestDatabase } from '../testing';
-import { listCareEvents, logCare, undoCare, type CareEvent, type CareInput } from './care-events';
+import { insertUser, setPlantStatus, useTestDatabase } from '../testing';
+import {
+	listCareEvents,
+	listCareToday,
+	logCare,
+	logDueTasks,
+	undoCare,
+	undoCareEvents,
+	type CareEvent,
+	type CareInput,
+	type DueCareInput
+} from './care-events';
 import { createHome } from './homes';
 import { createPlant } from './plants';
 import { createRoom } from './rooms';
@@ -35,6 +45,21 @@ function addPlant(homeId: string, nickname: string): string {
 	const plant = createPlant(homeId, { nickname, roomId: room.room.id });
 	if (!plant) throw new Error('Plant refused');
 	return plant.id;
+}
+
+/** Waters a plant every 7 days from 1 June, so it's a week overdue on 15 June. */
+function waterWeekly(homeId: string, plantId: string) {
+	const added = new Date('2026-06-01T09:00:00Z');
+	createSchedule(homeId, plantId, { task: 'water', intervalDays: '7', recheckDays: '2' }, added);
+}
+
+const due = (homeId: string, plantId: string) => listSchedules(homeId, plantId, now)[0];
+
+/** Logs a due task that must be accepted. */
+function logDue(homeId: string, userId: string, input: DueCareInput) {
+	const result = logDueTasks(homeId, userId, input, now);
+	if (!result.ok) throw new Error(`Care refused: ${result.reason}`);
+	return result;
 }
 
 /** Logs care that must be accepted. */
@@ -216,5 +241,235 @@ describe('undoCare', () => {
 		expect(undoCare(bobHome, bob, cactus, event.id)).toEqual({ ok: false, reason: 'not-found' });
 
 		expect(history(aliceHome, fern)).toEqual([event]);
+	});
+});
+
+describe('logDueTasks', () => {
+	let ivy: string;
+	beforeEach(() => {
+		ivy = addPlant(aliceHome, 'Ivy');
+		waterWeekly(aliceHome, fern);
+		waterWeekly(aliceHome, ivy);
+	});
+
+	it('logs the task on each plant it is due on, by name, and the due dates move on', () => {
+		const result = logDue(aliceHome, alice, {
+			task: 'water',
+			outcome: 'done',
+			plantIds: [ivy, fern]
+		});
+
+		expect(result.notDue).toEqual([]);
+		expect(result.logged.map((task) => [task.plantId, task.plantName])).toEqual([
+			[fern, 'Fern'],
+			[ivy, 'Ivy']
+		]);
+		expect(history(aliceHome, fern)).toMatchObject([
+			{ id: result.logged[0].eventId, type: 'water', doneAt: now, userId: alice }
+		]);
+		expect(due(aliceHome, fern)).toMatchObject({ due: '2026-06-22', daysAway: 7 });
+		expect(due(aliceHome, ivy)).toMatchObject({ due: '2026-06-22', daysAway: 7 });
+	});
+
+	it('records "not needed" as a check, which puts the task off by the recheck delay', () => {
+		logDue(aliceHome, alice, { task: 'water', outcome: 'not-needed', plantIds: [fern] });
+
+		expect(history(aliceHome, fern)).toMatchObject([{ type: 'checked', checkedTask: 'water' }]);
+		expect(due(aliceHome, fern)).toMatchObject({ dueReason: 'checked', daysAway: 2 });
+		expect(history(aliceHome, ivy)).toEqual([]);
+	});
+
+	it("leaves alone a plant whose task isn't due any more, so it isn't done twice", () => {
+		const carer = insertUser('carol@example.com');
+		log(aliceHome, carer, fern, { type: 'water' });
+
+		const result = logDue(aliceHome, alice, {
+			task: 'water',
+			outcome: 'done',
+			plantIds: [fern, ivy]
+		});
+
+		expect(result.logged.map((task) => task.plantName)).toEqual(['Ivy']);
+		expect(result.notDue).toEqual([{ plantId: fern, plantName: 'Fern' }]);
+		expect(history(aliceHome, fern)).toHaveLength(1);
+	});
+
+	it('logs a task due today because of a snooze, and ends the snooze', () => {
+		snoozeTask(aliceHome, fern, 'water', { days: '1' }, now);
+		const tomorrow = new Date('2026-06-16T09:00:00Z');
+		expect(listSchedules(aliceHome, fern, tomorrow)[0]).toMatchObject({ daysAway: 0 });
+
+		const result = logDueTasks(
+			aliceHome,
+			alice,
+			{ task: 'water', outcome: 'done', plantIds: [fern] },
+			tomorrow
+		);
+
+		expect(result).toMatchObject({ ok: true, notDue: [] });
+		expect(listSchedules(aliceHome, fern, tomorrow)[0]).toMatchObject({
+			snoozedUntil: null,
+			due: '2026-06-23'
+		});
+	});
+
+	it('ignores plants without that task or no longer active, and repeated plants', () => {
+		const basil = addPlant(aliceHome, 'Basil');
+		setPlantStatus(ivy, 'given-away');
+
+		const result = logDue(aliceHome, alice, {
+			task: 'water',
+			outcome: 'done',
+			plantIds: [fern, fern, basil, ivy]
+		});
+
+		expect(result.logged.map((task) => task.plantName)).toEqual(['Fern']);
+		expect(history(aliceHome, fern)).toHaveLength(1);
+		expect(history(aliceHome, basil)).toEqual([]);
+		expect(history(aliceHome, ivy)).toEqual([]);
+		expect(
+			logDueTasks(aliceHome, alice, { task: 'feed', outcome: 'done', plantIds: [fern] }, now)
+		).toEqual({ ok: false, reason: 'not-found' });
+	});
+
+	it('explains what is wrong with the input', () => {
+		const input = { task: 'water', outcome: 'done', plantIds: [fern] };
+		expect(messages(() => logDueTasks(aliceHome, alice, { ...input, task: 'move' }))).toEqual([
+			'Choose a task.'
+		]);
+		expect(messages(() => logDueTasks(aliceHome, alice, { ...input, outcome: '' }))).toEqual([
+			'Choose done or not needed.'
+		]);
+		expect(messages(() => logDueTasks(aliceHome, alice, { ...input, plantIds: [] }))).toEqual([
+			'Choose a plant.'
+		]);
+		expect(
+			messages(() =>
+				logDueTasks(aliceHome, alice, { ...input, plantIds: Array<string>(501).fill(fern) })
+			)
+		).toEqual(['Choose 500 plants or fewer.']);
+	});
+
+	it("won't log care on another home's plants, even mixed with its own", () => {
+		waterWeekly(bobHome, cactus);
+
+		expect(
+			logDueTasks(bobHome, bob, { task: 'water', outcome: 'done', plantIds: [fern, ivy] }, now)
+		).toEqual({ ok: false, reason: 'not-found' });
+		const mixed = logDue(bobHome, bob, {
+			task: 'water',
+			outcome: 'done',
+			plantIds: [fern, cactus]
+		});
+
+		expect(mixed.logged.map((task) => task.plantName)).toEqual(['Cactus']);
+		expect(history(aliceHome, fern)).toEqual([]);
+		expect(history(aliceHome, ivy)).toEqual([]);
+		expect(history(bobHome, fern)).toEqual([]);
+	});
+});
+
+describe('listCareToday', () => {
+	it("lists the day's care in the home's time zone, latest first, by anyone", () => {
+		const carer = insertUser('carol@example.com');
+		const ivy = addPlant(aliceHome, 'Ivy');
+		// 00:30 BST on the 15th is still the 14th in UTC.
+		const early = log(aliceHome, carer, ivy, { type: 'mist', doneAt: '2026-06-15T00:30' });
+		const watered = log(aliceHome, alice, fern, { type: 'water' });
+		// Logged today, but done yesterday.
+		log(aliceHome, alice, fern, { type: 'feed', doneAt: '2026-06-14T23:59' });
+
+		expect(listCareToday(aliceHome, now)).toEqual([
+			{ ...watered, plantName: 'Fern' },
+			{ ...early, plantName: 'Ivy' }
+		]);
+		// By midnight in Paris, the 15th has ended there, but not yet in London.
+		expect(listCareToday(aliceHome, new Date('2026-06-15T22:30:00Z'))).toHaveLength(2);
+		expect(listCareToday(aliceHome, new Date('2026-06-16T00:00:00Z'))).toEqual([]);
+	});
+
+	it('leaves out plants that are no longer active', () => {
+		log(aliceHome, alice, fern, { type: 'water' });
+		setPlantStatus(fern, 'died');
+
+		expect(listCareToday(aliceHome, now)).toEqual([]);
+	});
+
+	it("lists only the home's own care, never another's", () => {
+		const watered = log(aliceHome, alice, fern, { type: 'water' });
+		const fed = log(bobHome, bob, cactus, { type: 'feed' });
+
+		expect(listCareToday(aliceHome, now)).toEqual([{ ...watered, plantName: 'Fern' }]);
+		expect(listCareToday(bobHome, now)).toEqual([{ ...fed, plantName: 'Cactus' }]);
+	});
+});
+
+describe('undoCareEvents', () => {
+	it('removes several events the person logged, and the due dates go back', () => {
+		const ivy = addPlant(aliceHome, 'Ivy');
+		waterWeekly(aliceHome, fern);
+		waterWeekly(aliceHome, ivy);
+		const { logged } = logDue(aliceHome, alice, {
+			task: 'water',
+			outcome: 'done',
+			plantIds: [fern, ivy]
+		});
+
+		const result = undoCareEvents(
+			aliceHome,
+			alice,
+			logged.map((task) => task.eventId)
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			events: [
+				{ plantName: 'Fern', type: 'water' },
+				{ plantName: 'Ivy', type: 'water' }
+			]
+		});
+		expect(history(aliceHome, fern)).toEqual([]);
+		expect(due(aliceHome, fern)).toMatchObject({ due: '2026-06-08', daysAway: -7 });
+		expect(due(aliceHome, ivy)).toMatchObject({ due: '2026-06-08', daysAway: -7 });
+	});
+
+	it('removes none if any was logged by someone else in the home', () => {
+		const carer = insertUser('carol@example.com');
+		const mine = log(aliceHome, alice, fern, { type: 'water' });
+		const theirs = log(aliceHome, carer, fern, { type: 'mist' });
+
+		expect(undoCareEvents(aliceHome, alice, [mine.id, theirs.id])).toEqual({
+			ok: false,
+			reason: 'not-yours'
+		});
+		expect(history(aliceHome, fern)).toHaveLength(2);
+	});
+
+	it('skips events already removed, and says when all of them have gone', () => {
+		const watered = log(aliceHome, alice, fern, { type: 'water' });
+		const misted = log(aliceHome, alice, fern, { type: 'mist' });
+		undoCare(aliceHome, alice, fern, watered.id);
+
+		expect(undoCareEvents(aliceHome, alice, [watered.id, misted.id])).toMatchObject({
+			ok: true,
+			events: [{ id: misted.id }]
+		});
+		expect(undoCareEvents(aliceHome, alice, [watered.id, misted.id])).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect(undoCareEvents(aliceHome, alice, [])).toEqual({ ok: false, reason: 'not-found' });
+	});
+
+	it("can't remove another home's care", () => {
+		const watered = log(aliceHome, alice, fern, { type: 'water' });
+
+		expect(undoCareEvents(bobHome, alice, [watered.id])).toEqual({
+			ok: false,
+			reason: 'not-found'
+		});
+		expect(undoCareEvents(bobHome, bob, [watered.id])).toEqual({ ok: false, reason: 'not-found' });
+
+		expect(history(aliceHome, fern)).toEqual([watered]);
 	});
 });

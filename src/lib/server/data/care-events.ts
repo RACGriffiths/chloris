@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { CARE_TYPES, TASKS, isTask, type CareType, type Task } from '../../care';
-import { zonedTime } from '../../dates';
+import { addDays, calendarDate, zonedTime } from '../../dates';
 import { getConnection, type Db } from '../db';
 import { careEvent, careSchedule, home, plant, user } from '../db/schema';
 import { optionalText } from './fields';
+import { compareNames } from './order';
+import { findTasks } from './schedules';
 
 /**
  * The care log: each watering, feed, check and so on, with who logged it and when it was done
@@ -18,6 +20,9 @@ import { optionalText } from './fields';
  */
 
 export const MAX_NOTE_LENGTH = 500;
+
+/** How many plants one tap on the Today view can log a task on. */
+export const MAX_PLANTS_AT_ONCE = 500;
 
 /** How far ahead of the server's clock a time may be, for a phone whose clock runs a little fast. */
 const CLOCK_SLACK_MS = 5 * 60_000;
@@ -65,6 +70,41 @@ export const careInput = z
 /** Care as a form sends it, before `careInput` has checked it. */
 export type CareInput = { type: string; checkedTask?: string; doneAt?: string; note?: string };
 
+/** A care event with the plant it was for, as the Today view lists it. */
+export interface CareEventOnPlant extends CareEvent {
+	plantName: string;
+}
+
+/**
+ * What the Today view's buttons send: a scheduled task, whether it was done or checked and not
+ * needed, and the plants it's for. One plant for a task's own buttons; a room's for "Water all".
+ */
+export const dueCareInput = z.object({
+	task: z.enum(TASKS, 'Choose a task.'),
+	outcome: z.enum(['done', 'not-needed'], 'Choose done or not needed.'),
+	plantIds: z
+		.array(z.string().min(1, 'Choose a plant.'))
+		.min(1, 'Choose a plant.')
+		.max(MAX_PLANTS_AT_ONCE, `Choose ${MAX_PLANTS_AT_ONCE} plants or fewer.`)
+});
+
+export type DueCareInput = { task: string; outcome: string; plantIds: string[] };
+
+/** A task logged on one plant by `logDueTasks`. */
+export interface LoggedTask {
+	eventId: string;
+	plantId: string;
+	plantName: string;
+}
+
+/**
+ * The outcome of logging a task on several plants. Plants whose task was no longer due were left
+ * alone; `not-found` means none of the plants is an active one in the home with that task.
+ */
+export type LogDueResult =
+	| { ok: true; logged: LoggedTask[]; notDue: { plantId: string; plantName: string }[] }
+	| { ok: false; reason: 'not-found' };
+
 /** The outcome of logging care. A refused entry logs nothing. */
 export type LogCareResult =
 	{ ok: true; event: CareEvent } | { ok: false; reason: 'not-found' | 'in-the-future' };
@@ -73,24 +113,36 @@ export type LogCareResult =
 export type UndoCareResult =
 	{ ok: true; event: CareEvent } | { ok: false; reason: 'not-found' | 'not-yours' };
 
+/** The outcome of undoing several events at once: those removed, or why none were. */
+export type UndoCareEventsResult =
+	{ ok: true; events: CareEventOnPlant[] } | { ok: false; reason: 'not-found' | 'not-yours' };
+
 const notFound = { ok: false, reason: 'not-found' } as const;
 
 type Tx = Pick<Db, 'select'>;
 
+const eventColumns = {
+	id: careEvent.id,
+	plantId: careEvent.plantId,
+	type: careEvent.type,
+	checkedTask: careEvent.checkedTask,
+	doneAt: careEvent.doneAt,
+	note: careEvent.note,
+	userId: careEvent.userId,
+	userName: user.name
+};
+
 /** Care events with who logged them. The caller adds the `where`. */
 function selectEvents(tx: Tx) {
+	return tx.select(eventColumns).from(careEvent).leftJoin(user, eq(user.id, careEvent.userId));
+}
+
+/** Care events with who logged them and the plant's name. The caller adds the `where`. */
+function selectEventsOnPlants(tx: Tx) {
 	return tx
-		.select({
-			id: careEvent.id,
-			plantId: careEvent.plantId,
-			type: careEvent.type,
-			checkedTask: careEvent.checkedTask,
-			doneAt: careEvent.doneAt,
-			note: careEvent.note,
-			userId: careEvent.userId,
-			userName: user.name
-		})
+		.select({ ...eventColumns, plantName: plant.nickname })
 		.from(careEvent)
+		.innerJoin(plant, and(eq(plant.id, careEvent.plantId), eq(plant.homeId, careEvent.homeId)))
 		.leftJoin(user, eq(user.id, careEvent.userId));
 }
 
@@ -102,6 +154,50 @@ function findEvent(tx: Tx, homeId: string, plantId: string, eventId: string): Ca
 		)
 		.get();
 	return row ?? null;
+}
+
+type WriteTx = Pick<Db, 'select' | 'insert' | 'update'>;
+
+/**
+ * Adds an event to the log of a plant already checked to be in `homeId`, and returns its id.
+ * Doing or checking a task ends its snooze (D31); a move has no schedule.
+ */
+function insertCare(
+	tx: WriteTx,
+	homeId: string,
+	userId: string,
+	plantId: string,
+	care: { type: CareType; checkedTask: Task | null; doneAt: Date; note: string | null; now: Date }
+): string {
+	const id = randomUUID();
+	tx.insert(careEvent)
+		.values({
+			id,
+			homeId,
+			plantId,
+			userId,
+			type: care.type,
+			checkedTask: care.checkedTask,
+			doneAt: care.doneAt,
+			note: care.note,
+			createdAt: care.now
+		})
+		.run();
+
+	const task = care.checkedTask ?? care.type;
+	if (isTask(task)) {
+		tx.update(careSchedule)
+			.set({ snoozedUntil: null })
+			.where(
+				and(
+					eq(careSchedule.plantId, plantId),
+					eq(careSchedule.homeId, homeId),
+					eq(careSchedule.task, task)
+				)
+			)
+			.run();
+	}
+	return id;
 }
 
 /**
@@ -133,36 +229,13 @@ export function logCare(
 			return { ok: false, reason: 'in-the-future' } as const;
 		}
 
-		const id = randomUUID();
-		tx.insert(careEvent)
-			.values({
-				id,
-				homeId,
-				plantId,
-				userId,
-				type: values.type,
-				checkedTask,
-				doneAt,
-				note: values.note,
-				createdAt: now
-			})
-			.run();
-
-		// Doing or checking a task ends its snooze (D31). A move has no schedule.
-		const task = checkedTask ?? values.type;
-		if (isTask(task)) {
-			tx.update(careSchedule)
-				.set({ snoozedUntil: null })
-				.where(
-					and(
-						eq(careSchedule.plantId, plantId),
-						eq(careSchedule.homeId, homeId),
-						eq(careSchedule.task, task)
-					)
-				)
-				.run();
-		}
-
+		const id = insertCare(tx, homeId, userId, plantId, {
+			type: values.type,
+			checkedTask,
+			doneAt,
+			note: values.note,
+			now
+		});
 		const event = findEvent(tx, homeId, plantId, id);
 		if (!event) throw new Error('The care event just logged has gone');
 		return { ok: true, event } as const;
@@ -206,6 +279,118 @@ export function undoCare(
 				.where(and(eq(careEvent.id, eventId), eq(careEvent.homeId, homeId)))
 				.run();
 			return { ok: true, event } as const;
+		},
+		{ behavior: 'immediate' }
+	);
+}
+
+/**
+ * Logs a scheduled task as done, or checked and not needed, on each of `plantIds` in `homeId`
+ * whose task is due today or overdue at `now`: the Today view's buttons, for one plant or a whole
+ * room. A plant whose task isn't due any more, because someone did, checked or snoozed it since
+ * the page was shown, is left alone and reported, so two people working from the same list don't
+ * water a plant twice. Plants that aren't active ones in the home with that task are ignored.
+ * Callers check `can(user, homeId, 'care:log')` first. Throws a `ZodError` if the input is
+ * invalid.
+ */
+export function logDueTasks(
+	homeId: string,
+	userId: string,
+	input: DueCareInput,
+	now = new Date()
+): LogDueResult {
+	const { task, outcome, plantIds } = dueCareInput.parse(input);
+	return getConnection().db.transaction(
+		(tx) => {
+			const tasks = findTasks(tx, homeId, task, [...new Set(plantIds)], now).sort(
+				(a, b) => compareNames(a.plantName, b.plantName) || a.plantId.localeCompare(b.plantId)
+			);
+			if (tasks.length === 0) return notFound;
+
+			const logged: LoggedTask[] = [];
+			const notDue: { plantId: string; plantName: string }[] = [];
+			for (const { plantId, plantName, daysAway } of tasks) {
+				if (daysAway > 0) {
+					notDue.push({ plantId, plantName });
+					continue;
+				}
+				const eventId = insertCare(tx, homeId, userId, plantId, {
+					type: outcome === 'done' ? task : 'checked',
+					checkedTask: outcome === 'done' ? null : task,
+					doneAt: now,
+					note: null,
+					now
+				});
+				logged.push({ eventId, plantId, plantName });
+			}
+			return { ok: true, logged, notDue } as const;
+		},
+		// Takes the write lock before working out what's due, so two people can't both log it.
+		{ behavior: 'immediate' }
+	);
+}
+
+/**
+ * The care given today to the active plants in `homeId`, by anyone, latest first. Today is the
+ * calendar date at `now` in the home's time zone; care logged today but backdated to an earlier
+ * day isn't included. Callers check `can(user, homeId, 'home:view')` first.
+ */
+export function listCareToday(homeId: string, now = new Date()): CareEventOnPlant[] {
+	const db = getConnection().db;
+	const found = db.select({ timeZone: home.timeZone }).from(home).where(eq(home.id, homeId)).get();
+	if (!found) return [];
+	const today = calendarDate(now, found.timeZone);
+	const start = zonedTime(`${today}T00:00`, found.timeZone);
+	const end = zonedTime(`${addDays(today, 1)}T00:00`, found.timeZone);
+
+	return selectEventsOnPlants(db)
+		.where(
+			and(
+				eq(careEvent.homeId, homeId),
+				eq(plant.status, 'active'),
+				gte(careEvent.doneAt, start),
+				lt(careEvent.doneAt, end)
+			)
+		)
+		.orderBy(desc(careEvent.doneAt), desc(careEvent.createdAt), desc(careEvent.id))
+		.all();
+}
+
+/**
+ * Undoes several care events in `homeId` at once, such as a room's watering logged with one tap,
+ * deleting them so the due dates go back. Only the person who logged them may (D32): if any isn't
+ * theirs, none is removed. Events already removed are skipped; `not-found` means all were.
+ * Callers check `can(user, homeId, 'care:log')` first.
+ */
+export function undoCareEvents(
+	homeId: string,
+	userId: string,
+	eventIds: string[]
+): UndoCareEventsResult {
+	const ids = [...new Set(eventIds)].slice(0, MAX_PLANTS_AT_ONCE);
+	if (ids.length === 0) return notFound;
+	return getConnection().db.transaction(
+		(tx) => {
+			const events = selectEventsOnPlants(tx)
+				.where(and(inArray(careEvent.id, ids), eq(careEvent.homeId, homeId)))
+				.all()
+				.sort((a, b) => compareNames(a.plantName, b.plantName) || a.id.localeCompare(b.id));
+			if (events.length === 0) return notFound;
+			if (events.some((event) => event.userId !== userId)) {
+				return { ok: false, reason: 'not-yours' } as const;
+			}
+			tx.delete(careEvent)
+				.where(
+					and(
+						inArray(
+							careEvent.id,
+							events.map((event) => event.id)
+						),
+						eq(careEvent.homeId, homeId)
+					)
+				)
+				.run();
+			return { ok: true, events } as const;
 		},
 		{ behavior: 'immediate' }
 	);

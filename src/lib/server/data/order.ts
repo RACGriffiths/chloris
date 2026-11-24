@@ -5,9 +5,12 @@
  */
 const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
 
+/** Compares two names in list order. */
+export const compareNames = (a: string, b: string): number => collator.compare(a, b);
+
 /** Compares two rows by `name`, then by `id` so that rows with the same name keep a fixed order. */
 export function byName<T extends { id: string }>(name: (row: T) => string) {
-	return (a: T, b: T) => collator.compare(name(a), name(b)) || (a.id < b.id ? -1 : 1);
+	return (a: T, b: T) => compareNames(name(a), name(b)) || (a.id < b.id ? -1 : 1);
 }
 
 /** Whether two names would look the same in a list: equal, ignoring case. */
