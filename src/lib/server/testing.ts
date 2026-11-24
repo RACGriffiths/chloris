@@ -4,10 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, beforeEach } from 'vitest';
-import type { PlantStatus } from '../plants';
 import { closeDatabase, getConnection, initDatabase } from './db';
 import { eq } from 'drizzle-orm';
-import { membership, photo, plant, user } from './db/schema';
+import { membership, photo, user } from './db/schema';
 import { initPhotoStorage } from './photos/storage';
 
 /**
@@ -51,11 +50,6 @@ export function addMember(
 		.db.insert(membership)
 		.values({ id: randomUUID(), homeId, userId, role, expiresAt, createdAt })
 		.run();
-}
-
-/** Gives a plant a status other than active, which the Memorial view will set (D30). */
-export function setPlantStatus(plantId: string, status: Exclude<PlantStatus, 'active'>): void {
-	getConnection().db.update(plant).set({ status }).where(eq(plant.id, plantId)).run();
 }
 
 /**

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import DoorOpenIcon from '@lucide/svelte/icons/door-open';
+	import Flower2Icon from '@lucide/svelte/icons/flower-2';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SproutIcon from '@lucide/svelte/icons/sprout';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -175,4 +176,22 @@
 			<strong class="font-semibold text-foreground">{data.filter.tag}</strong>.
 		</p>
 	{/each}
+{/if}
+
+<!-- Plants that died, were given away or were sold, once there are any (D45). -->
+{#if data.memorialCount > 0}
+	<a
+		href={resolve('plants/memorial')}
+		class="mt-10 flex items-center gap-3 rounded-lg border p-3 outline-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+	>
+		<Flower2Icon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+		<span class="min-w-0 flex-1">
+			<span class="block font-medium">Memorial</span>
+			<span class="block text-sm text-muted-foreground">
+				{data.memorialCount === 1 ? '1 plant' : `${data.memorialCount} plants`} that died, were given
+				away or were sold
+			</span>
+		</span>
+		<ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+	</a>
 {/if}

@@ -278,9 +278,9 @@ export const plant = sqliteTable(
 			.notNull()
 			.default(sql`'[]'`),
 		notes: text('notes'),
-		/** Only active plants are listed. The others wait for the Memorial view. */
+		/** Only active plants are listed and cared for; the others are in the Memorial (D43 to D45). */
 		status: text('status', { enum: PLANT_STATUSES }).notNull().default('active'),
-		/** When the status last changed, `YYYY-MM-DD`; `null` while active. Screens come later. */
+		/** The day the status last changed, `YYYY-MM-DD`; cleared with the note on restoring (D43). */
 		statusOn: text('status_on'),
 		statusNote: text('status_note'),
 		/** The plant this one was grown from, in the same home. Screens come later (Later: family tree). */

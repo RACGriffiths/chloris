@@ -58,6 +58,9 @@
 						class="inline-flex h-8 items-center rounded-full border px-3 text-sm hover:bg-muted"
 					>
 						{plant.nickname}
+						{#if plant.inMemorial}
+							<span class="ml-1 text-muted-foreground">(in the Memorial)</span>
+						{/if}
 					</a>
 				</li>
 			{/each}

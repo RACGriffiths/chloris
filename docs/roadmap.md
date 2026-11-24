@@ -29,7 +29,7 @@ Version 1 already uses the multi-home data model, so version 2 adds screens rath
 - [x] Today view, including bulk actions
 - [x] Photo pipeline: browser resize, metadata stripping, sharp variants, write-once storage, permission-checked serving
 - [x] Photo timeline on the plant page, and cover photos
-- [ ] Memorial and lifecycle statuses
+- [x] Memorial and lifecycle statuses
 - [ ] Daily email digest: scheduler, digest log, quiet hours
 - [ ] Backup command and integrity check
 - [ ] Security baseline: CSP, rate limits, audit log

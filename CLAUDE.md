@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, and the photo timeline with cover photos are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, and the Memorial (lifecycle statuses) are in.
 
 ## Read first
 
@@ -51,9 +51,10 @@ src/
     jobs/         scheduler, digests, photo clean-up (v1)
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
   lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts
-                      shared by server and pages: room, plant and care choices, their names on
-                      screen, calendar dates and times in the home's time zone, photo sizes and
-                      limits, reading the date a photo was taken from its EXIF data
+                      shared by server and pages: room, plant and care choices (including what
+                      happened to a plant in the Memorial), their names on screen, calendar
+                      dates and times in the home's time zone, photo sizes and limits, reading
+                      the date a photo was taken from its EXIF data
   lib/photo-upload.ts resizing a photo in the browser before upload (load with await import())
   lib/photo-field.ts  for a form that sends a photo: swaps in the resized copy, loading
                       photo-upload.ts only once a photo is sent
@@ -64,8 +65,9 @@ src/
   routes/
     (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
     (app)/        the signed-in app: the Today view (the home page), plants, each photo's page
-                  (plants/[plantId]/photos/[photoId]), rooms, members and invites, the account
-                  page, and photos/[photoId]/[size], which serves photo files
+                  (plants/[plantId]/photos/[photoId]), the Memorial (plants/memorial) and the form
+                  that moves a plant there (plants/[plantId]/memorialise), rooms, members and
+                  invites, the account page, and photos/[photoId]/[size], which serves photo files
 tests/            Playwright end-to-end tests (*.e2e.ts), with shared steps in helpers.ts
 ```
 
@@ -118,6 +120,9 @@ Much SvelteKit material online describes version 2. In this project:
 - The Node adapter refuses a request over `BODY_SIZE_LIMIT` only when the body is read: `request.formData()` throws an error with `status` 413. Catch it in the action to show a message (the plant page's `addPhoto`). `npm run dev` has no limit.
 - sharp's `metadata()` already enforces `limitInputPixels`, so read the header with `limitInputPixels: false` and check the size yourself, then decode with the limit.
 - `resolve()` gives relative paths in server-rendered pages (`../photos/<id>/thumb`): in Playwright, read them with `new URL(src, page.url())`. Playwright can't read a request body holding a file; `watchUploads()` in `tests/photos.e2e.ts` keeps a copy in the page instead.
+- A plant tile is `aria-hidden`, so Playwright's `getByRole('img')` can't see its photo: read it with `locator('img')` instead.
+- Tailwind's `line-clamp-*` works by setting `display: -webkit-box`, so `block` on the same element undoes it and nothing is cut off. Leave `block` out; the clamp makes the element a block already.
+- A result type whose failure has a union of reasons (`reason: 'not-found' | 'in-the-future'`) can't be narrowed one reason at a time, so a field on another failure (`acquiredOn`) can't be read after `error(404)` on `not-found`. Give each reason its own variant, as `MemorialiseResult` does.
 - In Playwright, `getByLabel` and `getByRole({ name })` match substrings: "Kitchen" also finds "Edit Kitchen", and "Name" finds "Room name". Use `exact: true`. After a click that navigates, wait for something on the next page before filling a field or reading the URL, or the step acts on the old page.
 
 ## Commands

@@ -22,6 +22,9 @@ import { findTasks } from './schedules';
  *
  * Care can be logged with a photo (D41), which also needs `photo:add`. The photo joins the
  * plant's timeline, and stays there if the care is undone.
+ *
+ * Care is logged only on active plants: one in the Memorial is refused (D44). Care logged before
+ * it went there can still be undone.
  */
 
 export const MAX_NOTE_LENGTH = 500;
@@ -115,12 +118,13 @@ export type LogDueResult =
 
 /** The outcome of logging care. A refused entry logs nothing. */
 export type LogCareResult =
-	{ ok: true; event: CareEvent } | { ok: false; reason: 'not-found' | 'in-the-future' };
+	| { ok: true; event: CareEvent }
+	| { ok: false; reason: 'not-found' | 'in-the-memorial' | 'in-the-future' };
 
 /** The outcome of logging care with a photo. A refused entry stores neither. */
 export type LogCareWithPhotoResult =
 	| { ok: true; event: CareEvent; photoId: string }
-	| { ok: false; reason: 'not-found' | 'in-the-future' | PhotoProblem };
+	| { ok: false; reason: 'not-found' | 'in-the-memorial' | 'in-the-future' | PhotoProblem };
 
 /** The outcome of undoing care: the event that was removed, or why nothing was. */
 export type UndoCareResult =
@@ -223,7 +227,8 @@ function insertCare(
 
 /**
  * When care given to a plant in `homeId` was done: `doneAt`, a time in the home's time zone, or
- * else now. Refused if the home has no such plant, or the time is still to come.
+ * else now. Refused if the home has no such plant, the plant is in the Memorial (D44), or the time
+ * is still to come.
  */
 function careTime(
 	tx: Tx,
@@ -231,14 +236,17 @@ function careTime(
 	plantId: string,
 	doneAt: string | null,
 	now: Date
-): { ok: true; doneAt: Date } | { ok: false; reason: 'not-found' | 'in-the-future' } {
+):
+	| { ok: true; doneAt: Date }
+	| { ok: false; reason: 'not-found' | 'in-the-memorial' | 'in-the-future' } {
 	const found = tx
-		.select({ timeZone: home.timeZone })
+		.select({ timeZone: home.timeZone, status: plant.status })
 		.from(plant)
 		.innerJoin(home, eq(home.id, plant.homeId))
 		.where(and(eq(plant.id, plantId), eq(plant.homeId, homeId)))
 		.get();
 	if (!found) return notFound;
+	if (found.status !== 'active') return { ok: false, reason: 'in-the-memorial' } as const;
 	const time = doneAt ? zonedTime(doneAt, found.timeZone) : now;
 	if (stillToCome(time, now)) return { ok: false, reason: 'in-the-future' } as const;
 	return { ok: true, doneAt: time };
@@ -246,8 +254,8 @@ function careTime(
 
 /**
  * Logs care given to a plant in `homeId` by `userId`: now, or at an earlier time the input gives.
- * Doing or checking a task ends its snooze. Refused if the home has no such plant, or the time is
- * in the future. Callers check `can(user, homeId, 'care:log')` first. Throws a `ZodError` if the
+ * Doing or checking a task ends its snooze. Refused if the home has no such plant, the plant is in
+ * the Memorial, or the time is in the future. Callers check `can(user, homeId, 'care:log')` first. Throws a `ZodError` if the
  * input is invalid.
  */
 export function logCare(
@@ -280,8 +288,8 @@ export function logCare(
  * Logs care as `logCare` does, with a photo of the plant taken at the time (D41): `file`, checked
  * and stored as `addPhoto` stores any photo, and dated by its own EXIF data, or else `takenAt`,
  * the date the browser read from it, or else when the care was done. Either both are stored or
- * neither is. Refused if the home has no such plant, the time is in the future, or the file isn't
- * a photo the server accepts. Callers check `can(user, homeId, 'care:log')` and
+ * neither is. Refused if the home has no such plant, the plant is in the Memorial, the time is in
+ * the future, or the file isn't a photo the server accepts. Callers check `can(user, homeId, 'care:log')` and
  * `can(user, homeId, 'photo:add')` first. Throws a `ZodError` if the input is invalid.
  */
 export async function logCareWithPhoto(

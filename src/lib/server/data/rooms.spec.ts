@@ -2,10 +2,10 @@ import { eq } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getConnection } from '../db';
-import { home, plant } from '../db/schema';
+import { home } from '../db/schema';
 import { insertUser, useTestDatabase } from '../testing';
 import { createHome } from './homes';
-import { createPlant, getPlant, listPlants } from './plants';
+import { createPlant, getPlant, listPlants, memorialisePlant } from './plants';
 import { createRoom, deleteRoom, getRoom, listRooms, updateRoom, type Room } from './rooms';
 
 useTestDatabase();
@@ -114,7 +114,7 @@ describe('listRooms', () => {
 		const hall = addRoom(aliceHome, 'Hall');
 		createPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id });
 		const basil = createPlant(aliceHome, { nickname: 'Basil', roomId: kitchen.id });
-		getConnection().db.update(plant).set({ status: 'died' }).where(eq(plant.id, basil!.id)).run();
+		memorialisePlant(aliceHome, basil!.id, { status: 'died', statusOn: '2026-06-01' });
 		createPlant(aliceHome, { nickname: 'Ivy', roomId: kitchen.id });
 		const study = addRoom(bobHome, 'Study');
 		createPlant(bobHome, { nickname: 'Cactus', roomId: study.id });
@@ -193,16 +193,16 @@ describe('deleteRoom', () => {
 	it('refuses while the room holds plants, whatever their status', () => {
 		const kitchen = addRoom(aliceHome, 'Kitchen');
 		const fern = createPlant(aliceHome, { nickname: 'Fern', roomId: kitchen.id })!;
-		getConnection()
-			.db.update(plant)
-			.set({ status: 'given-away' })
-			.where(eq(plant.id, fern.id))
-			.run();
+		const result = memorialisePlant(aliceHome, fern.id, {
+			status: 'given-away',
+			statusOn: '2026-06-01'
+		});
+		if (!result.ok) throw new Error('Memorial refused');
 
 		expect(deleteRoom(aliceHome, kitchen.id)).toEqual({ ok: false, reason: 'has-plants' });
 
 		expect(getRoom(aliceHome, kitchen.id)).toEqual(kitchen);
-		expect(getPlant(aliceHome, fern.id)).toEqual(fern);
+		expect(getPlant(aliceHome, fern.id)).toEqual(result.plant);
 	});
 
 	it("can't delete another home's room", () => {

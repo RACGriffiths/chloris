@@ -1,4 +1,4 @@
-import { listPlants } from '#lib/server/data/plants.js';
+import { countMemorial, listPlants } from '#lib/server/data/plants.js';
 import { listRooms } from '#lib/server/data/rooms.js';
 import { requireHome } from '#lib/server/permissions/guard.js';
 import { can } from '#lib/server/permissions/index.js';
@@ -6,7 +6,8 @@ import type { PageServerLoad } from './$types';
 
 /**
  * The home's active plants, under their rooms (D30). `?room=` shows one room and `?tag=` only
- * plants with that tag. Both are links, so filtering works before JavaScript loads.
+ * plants with that tag. Both are links, so filtering works before JavaScript loads. The foot of
+ * the page leads to the Memorial, once a plant is in it (D45).
  */
 export const load: PageServerLoad = ({ locals, url }) => {
 	const { user, home } = requireHome(locals, 'home:view');
@@ -19,6 +20,7 @@ export const load: PageServerLoad = ({ locals, url }) => {
 		rooms,
 		plants: listPlants(home.id, { roomId, tag }),
 		filter: { roomId, tag },
+		memorialCount: countMemorial(home.id),
 		canEditPlants: can(user, home.id, 'plant:edit')
 	};
 };

@@ -97,7 +97,8 @@ export type CreateScheduleResult =
 
 /** The outcome of snoozing a task: the date it's snoozed until, or why it wasn't. */
 export type SnoozeResult =
-	{ ok: true; until: string } | { ok: false; reason: 'not-found' | 'not-after-today' | 'too-far' };
+	| { ok: true; until: string }
+	| { ok: false; reason: 'not-found' | 'in-the-memorial' | 'not-after-today' | 'too-far' };
 
 const notFound = { ok: false, reason: 'not-found' } as const;
 
@@ -367,7 +368,7 @@ export function deleteSchedule(homeId: string, plantId: string, scheduleId: stri
 /**
  * Puts off a plant's scheduled task in `homeId`: for a day or three from today, or until a chosen
  * date, which must be after today and within `MAX_SNOOZE_DAYS`. Doing or checking the task ends
- * the snooze (D31). Callers check `can(user, homeId, 'care:log')` first. Throws a `ZodError` if
+ * the snooze (D31). A plant in the Memorial has no tasks to snooze (D44). Callers check `can(user, homeId, 'care:log')` first. Throws a `ZodError` if
  * the input is invalid.
  */
 export function snoozeTask(
@@ -381,12 +382,17 @@ export function snoozeTask(
 	if (!isTask(task)) return notFound;
 	return getConnection().db.transaction((tx) => {
 		const found = tx
-			.select({ timeZone: home.timeZone })
+			.select({ timeZone: home.timeZone, status: plant.status })
 			.from(careSchedule)
 			.innerJoin(home, eq(home.id, careSchedule.homeId))
+			.innerJoin(
+				plant,
+				and(eq(plant.id, careSchedule.plantId), eq(plant.homeId, careSchedule.homeId))
+			)
 			.where(taskInHome(homeId, plantId, task))
 			.get();
 		if (!found) return notFound;
+		if (found.status !== 'active') return { ok: false, reason: 'in-the-memorial' } as const;
 
 		const today = calendarDate(now, found.timeZone);
 		const until = values.days ? addDays(today, Number(values.days)) : (values.until ?? '');
