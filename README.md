@@ -73,4 +73,4 @@ To report a security problem, please don't open an issue: [SECURITY.md](SECURITY
 
 Copyright © 2026 RACGriffiths. Chloris is free software, licensed under the [GNU Affero General Public License v3.0 or later](LICENSE).
 
-You can use, change and host it, including for other people. If you distribute it, or run a modified version that other people use over a network, you must make your source code available to them under the same licence.
+You can use, change and host it, including for other people. If you distribute it, or run a modified version that other people use over a network, you must make your source code available to them under the same licence. Chloris's About page links to the source of the version running, so if you run a modified version, set `repository` in [package.json](package.json) to where you publish yours.

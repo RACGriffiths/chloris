@@ -1,6 +1,7 @@
 <script lang="ts">
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import InfoIcon from '@lucide/svelte/icons/info';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import MonitorSmartphoneIcon from '@lucide/svelte/icons/monitor-smartphone';
@@ -138,6 +139,21 @@
 			</li>
 		{/each}
 	</ul>
+</section>
+
+<section class="mt-10" aria-labelledby="about">
+	<h2 id="about" class="text-lg font-semibold">About Chloris</h2>
+	<a
+		href={resolve('about')}
+		class="mt-4 flex items-center gap-3 rounded-lg border p-3 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+	>
+		<InfoIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+		<span class="min-w-0 flex-1">
+			<span class="block font-medium">Version {data.version}</span>
+			<span class="block text-sm text-muted-foreground">Source code and licence</span>
+		</span>
+		<ChevronRightIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+	</a>
 </section>
 
 <form method="POST" action="?/signOut" class="mt-10" use:enhance>

@@ -6,6 +6,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# The commit being built, which the About page links to (D59). The repository isn't copied in,
+# so pass it: --build-arg SOURCE_COMMIT=$(git rev-parse HEAD). Without it, the page links to the
+# repository as a whole.
+ARG SOURCE_COMMIT
 RUN npm run build && npm prune --omit=dev
 # `npm prune --omit=dev` keeps a development package that a production one names as an optional
 # peer, which the lockfile marks "devOptional": better-auth's peers include drizzle-kit (with an

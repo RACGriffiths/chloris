@@ -2,8 +2,14 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { readBuildInfo } from './src/lib/server/build-info.ts';
 
 export default defineConfig({
+	// The version and commit being built, for the About page (D59). Fixed into the build here, so
+	// the page describes the code that was built, not whatever is in this folder later.
+	define: {
+		__CHLORIS_BUILD__: JSON.stringify(readBuildInfo(import.meta.dirname))
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

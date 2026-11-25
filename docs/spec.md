@@ -56,6 +56,8 @@ All configuration comes from environment variables. `ORIGIN`, `PORT`, `HOST`, `B
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | not set | Web push keys, generated once with a CLI command. Push is off without them; set all three or none. The subject is a `mailto:` or `https://` URL. |
 | `PHOTO_DELETE_GRACE_DAYS` | `30` | How long a deleted photo's files stay on disk. See [Photos and backups](#photos-and-backups). |
 
+One more variable is read when the app is built, not when it starts: `SOURCE_COMMIT`, the git commit being built, which the About page links to (D59). A build from a git checkout finds the commit itself. The Docker image is built without the repository, so it needs `--build-arg SOURCE_COMMIT=$(git rev-parse HEAD)`; without it, the page links to the repository as a whole.
+
 ## Tech stack
 
 Everything is TypeScript in one SvelteKit project that builds to a single Node server.
@@ -200,7 +202,7 @@ The Today view is the home screen and the care log is the core. Everything else 
 - An activity feed for each home.
 - Export and import of everything as JSON plus a zip of photos.
 - Settings for the home, members, rooms, measurement types, notifications, passkeys and sessions.
-- An About page with the version and a link to the source code. The AGPL requires anyone running a modified copy for other people to offer them its source, and this gives forks the place to do it.
+- An About page, open to anyone, with the version, the commit it was built from and a link to that commit's source code, then the licence's notices: copyright, no warranty, and a link to the AGPL. The AGPL requires anyone running a modified copy for other people to offer them its source, and this gives forks the place to do it: they point `repository` in package.json at their own (D59).
 
 ## Reminders and notifications
 

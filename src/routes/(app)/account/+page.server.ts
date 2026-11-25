@@ -4,6 +4,7 @@ import { describeUserAgent } from '#lib/devices.js';
 import { defaultNotificationSettings, digestSummary } from '#lib/notifications.js';
 import { authHeaders } from '#lib/server/auth/http.js';
 import { getAuth } from '#lib/server/auth/index.js';
+import { thisBuild } from '#lib/server/about.js';
 import { requireUser } from '#lib/server/auth/require.js';
 import { getConfig } from '#lib/server/config.js';
 import { listHomesForUser } from '#lib/server/data/homes.js';
@@ -16,7 +17,8 @@ import type { Actions, PageServerLoad, RequestEvent } from './$types';
 /**
  * The signed-in person's passkeys and sessions, any of which they can remove, and signing out.
  * BetterAuth only ever lists or removes the signed-in user's own. For someone in a home, it also
- * sums up their daily digest, which the Notifications page changes.
+ * sums up their daily digest, which the Notifications page changes. It links to the About page,
+ * with the version running here.
  */
 
 const formatDate = (date: Date) =>
@@ -34,6 +36,7 @@ export const load: PageServerLoad = async (event) => {
 		name: user.name,
 		email: user.email,
 		digest: digestFor(user),
+		version: thisBuild.version,
 		passkeys: passkeys
 			.sort((a, b) => Number(a.createdAt ?? 0) - Number(b.createdAt ?? 0))
 			.map((passkey) => ({
