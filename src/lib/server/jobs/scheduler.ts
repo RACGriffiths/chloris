@@ -1,11 +1,13 @@
 import { Cron, scheduledJobs } from 'croner';
 import type { Mailer } from '../notify/mailer';
 import { sendDigests } from './digests';
+import { removeExpired } from './expired';
 import { removeDeletedPhotos } from './photos';
 
 /**
  * The app's background jobs, run in its own process by croner (docs/spec.md, Tech stack): the
- * daily digest, when email is on (D48), and removing deleted photos after the grace period (D54).
+ * daily digest, when email is on (D48), removing deleted photos after the grace period (D54), and
+ * removing the server's log after 90 days and expired sign-in values (D58).
  */
 
 /** Every 5 minutes, on the clock: 08:00, 08:05 and so on. */
@@ -14,11 +16,18 @@ export const DIGEST_SCHEDULE = '*/5 * * * *';
 /** Once an hour, at 17 minutes past, clear of the digest's runs on the hour. */
 export const PHOTO_CLEANUP_SCHEDULE = '17 * * * *';
 
+/** Once an hour, at 47 minutes past, clear of the other jobs. */
+export const EXPIRED_SCHEDULE = '47 * * * *';
+
 /**
  * Names the jobs, so croner keeps them in `scheduledJobs`. That list outlives this module when the
  * development server reloads it, so jobs started before a reload can still be found and stopped.
  */
-const JOB_NAMES = { digests: 'daily-digests', photos: 'photo-cleanup' };
+const JOB_NAMES = {
+	digests: 'daily-digests',
+	photos: 'photo-cleanup',
+	expired: 'expired-records'
+};
 
 export interface JobsOptions {
 	/** `null` when email is off, which switches the digest off. */
@@ -64,6 +73,19 @@ export function startJobs({ mailer, origin, photoDeleteGraceDays }: JobsOptions)
 		},
 		async () => {
 			await removeDeletedPhotos(photoDeleteGraceDays);
+		}
+	);
+	new Cron(
+		EXPIRED_SCHEDULE,
+		{
+			...options,
+			name: JOB_NAMES.expired,
+			catch: (error) => {
+				console.error('The job removing expired records failed:', error);
+			}
+		},
+		() => {
+			removeExpired();
 		}
 	);
 }

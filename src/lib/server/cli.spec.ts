@@ -238,7 +238,8 @@ describe('printable', () => {
 		expect(printable('Zoë’s Pixel 👩‍👩‍👧 · 203.0.113.7')).toBe('Zoë’s Pixel 👩‍👩‍👧 · 203.0.113.7');
 	});
 
-	it('escapes control characters and those that reverse text', () => {
+	it('escapes control characters and those that change the direction of text', () => {
 		expect(printable('a\x1b]0;title\x07b\nc\u2066d')).toBe('a\\x1b]0;title\\x07b\\x0ac\\u2066d');
+		expect(printable('\u202eab\u200fc\u061c')).toBe('\\u202eab\\u200fc\\u061c');
 	});
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, lt, sql } from 'drizzle-orm';
 import type { ServerEntry } from '../../audit';
 import { getConnection } from '../db';
 import { serverEvent, user } from '../db/schema';
@@ -31,6 +31,12 @@ export type ServerEvent = ServerEntry & {
 	userAgent: string | null;
 	createdAt: Date;
 };
+
+/**
+ * How long entries are kept (D58). The hourly job removes older ones (`#lib/server/jobs/expired`):
+ * visitors who aren't signed in can add to the log, so it can't be left to grow.
+ */
+export const SERVER_LOG_DAYS = 90;
 
 /** Longer user agents are cut short: they're shown only as a device's name. */
 const MAX_USER_AGENT_LENGTH = 512;
@@ -72,4 +78,13 @@ export function listServerEvents(limit: number): ServerEvent[] {
 		.orderBy(desc(serverEvent.createdAt), sql`${serverEvent}.rowid desc`)
 		.limit(limit)
 		.all() as ServerEvent[];
+}
+
+/**
+ * Removes the entries recorded before `before`, returning how many. Entries are never changed:
+ * they're kept whole until they go.
+ */
+export function removeServerEventsBefore(before: Date): number {
+	return getConnection().db.delete(serverEvent).where(lt(serverEvent.createdAt, before)).run()
+		.changes;
 }

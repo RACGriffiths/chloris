@@ -1,4 +1,4 @@
-import sharp, { type Sharp } from 'sharp';
+import sharp, { type Metadata, type Sharp } from 'sharp';
 import { exifDate, type ExifDate } from '../../exif';
 import { MAX_PHOTO_BYTES, MAX_PHOTO_PIXELS, PHOTO_SIZES, type PhotoSize } from '../../photos';
 
@@ -26,11 +26,42 @@ export function oneAtATime(): <T>(task: () => Promise<T>) => Promise<T> {
 }
 
 /**
- * Decoding a photo can take a few hundred megabytes for a few seconds: a 100-megapixel PNG of
- * 16-bit colour, which compresses to about a megabyte, peaks near 260 MB. Several at once, from
- * one person or a few, could use up the memory of a small server, so uploads take turns.
+ * Decoding a photo can take a few hundred megabytes for a few seconds, from a file of a megabyte
+ * or two. Several at once, from one person or a few, could use up the memory of a small server,
+ * so uploads take turns.
  */
 const inTurn = oneAtATime();
+
+/**
+ * The most memory a file that must be decoded whole may need for its pixels (see `heldWhole()`).
+ *
+ * sharp reads most photos a strip at a time, shrinking as it goes, so a 60-megapixel JPEG, WebP
+ * or PNG takes under 200 MB for the whole process. A progressive JPEG or an interlaced PNG can't
+ * be read that way, and is held whole while it's decoded: a 60-megapixel PNG of 16-bit colour
+ * took 475 MB. With this limit, the most measured for one photo (sharp 0.35, about 60 MB of it
+ * Node and sharp themselves) was about 300 MB. Phone cameras save neither kind, and once
+ * JavaScript has loaded the browser sends an ordinary JPEG anyway.
+ */
+const MAX_HELD_BYTES = 200_000_000;
+
+/**
+ * How many bytes sharp holds at once to decode an image it can't read a strip at a time, from
+ * what its header says; 0 for one it can. A progressive JPEG keeps two bytes for each colour
+ * channel of each pixel until its last scan arrives (fewer when its colour is subsampled, which
+ * this ignores). An interlaced PNG keeps every pixel, one or two bytes a channel.
+ */
+function heldWhole({
+	format,
+	width,
+	height,
+	channels,
+	depth,
+	isProgressive
+}: Metadata): number {
+	if (!isProgressive) return 0;
+	const bytesPerChannel = format === 'jpeg' || depth === 'ushort' ? 2 : 1;
+	return width * height * channels * bytesPerChannel;
+}
 
 /** JPEG quality for every size. mozjpeg makes files about a fifth smaller at the same quality. */
 const JPEG = { quality: 80, mozjpeg: true } as const;
@@ -89,32 +120,38 @@ function encodeSizes(pixels: () => Sharp): Promise<Buffer[]> {
 	]);
 }
 
+interface Limits {
+	maxPixels: number;
+	maxHeldBytes: number;
+}
+
 /**
- * Checks an uploaded image and makes the stored sizes from it. `maxPixels` is for tests.
+ * Checks an uploaded image and makes the stored sizes from it. The limits are for tests.
  */
 export async function processPhoto(
 	input: Uint8Array,
-	{ maxPixels = MAX_PHOTO_PIXELS }: { maxPixels?: number } = {}
+	{ maxPixels = MAX_PHOTO_PIXELS, maxHeldBytes = MAX_HELD_BYTES }: Partial<Limits> = {}
 ): Promise<ProcessResult> {
 	if (input.byteLength > MAX_PHOTO_BYTES) return refuse('too-big');
 	const format = sniffFormat(input);
 	if (format === 'heic') return refuse('heic');
 	if (!format) return refuse('unsupported');
 
-	return inTurn(() => decode(input, format, maxPixels));
+	return inTurn(() => decode(input, format, { maxPixels, maxHeldBytes }));
 }
 
 /** Checks the size the header gives, then decodes the image and makes each stored size. */
 async function decode(
 	input: Uint8Array,
 	format: 'jpeg' | 'png' | 'webp',
-	maxPixels: number
+	{ maxPixels, maxHeldBytes }: Limits
 ): Promise<ProcessResult> {
 	try {
 		// Only the file's header is read here, so it needs no limit on pixels yet.
 		const metadata = await sharp(input, { limitInputPixels: false }).metadata();
 		if (metadata.format !== format) return refuse('unsupported');
 		if (metadata.width * metadata.height > maxPixels) return refuse('too-many-pixels');
+		if (heldWhole(metadata) > maxHeldBytes) return refuse('too-many-pixels');
 
 		const taken = metadata.exif ? exifDate(metadata.exif) : null;
 

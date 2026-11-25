@@ -249,6 +249,30 @@ describe('an address proven by a sign-in link (D50)', () => {
 		expect(hasPasskey(userId)).toBe(false);
 	});
 
+	it('ends a session the passkey started while BetterAuth was ending the others', async () => {
+		const { userId } = squat('alice@example.com');
+		const link = await commandLineLink('alice@example.com');
+		const { auth } = testAuth();
+		const { internalAdapter } = await auth.$context;
+		const endSessions = internalAdapter.deleteUserSessions.bind(internalAdapter);
+		let squatterToken = '';
+		vi.spyOn(internalAdapter, 'deleteUserSessions').mockImplementationOnce(async (id) => {
+			await endSessions(id);
+			// The squatter signs in with their passkey just after BetterAuth ends the sessions.
+			squatterToken = (await internalAdapter.createSession(id)).token;
+		});
+
+		const result = await auth.api.magicLinkVerify({
+			query: { token: tokenOf(link.url) },
+			headers: new Headers()
+		});
+
+		expect(result.user.id).toBe(userId);
+		expect(squatterToken).not.toBe('');
+		expect(await internalAdapter.findSession(squatterToken)).toBeNull();
+		expect(await internalAdapter.findSession(result.token)).not.toBeNull();
+	});
+
 	it('keeps the passkeys of an account whose address was already proven', async () => {
 		const owner = insertUser('owner@example.com');
 		insertPasskey(owner, 'Owner’s phone');
