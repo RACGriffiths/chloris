@@ -1,6 +1,6 @@
 {
 	"name": "chloris",
-	"version": "0.0.1",
+	"version": "1.0.0-rc.1",
 	"description": "A self-hosted plant care tracker for households",
 	"private": true,
 	"license": "AGPL-3.0-or-later",

@@ -37,7 +37,8 @@ flowchart LR
 - **Upgrades.** Database migrations run at start-up, after an automatic backup of the database to `$DATA_DIR/backups`. If the configuration is invalid or a migration fails, the app refuses to start.
 - **Backups.** The command-line tool backs up the database and then the photos into a folder of their own, and checks the two against each other. See [Photos and backups](#photos-and-backups).
 - **Health check.** `GET /api/health` reports whether the database is answering, for Docker and uptime monitors. It reveals nothing else.
-- **Same build everywhere.** The Docker image and a plain Node install run the same code, configured by environment variables.
+- **Same build everywhere.** The Docker image and a plain Node install run the same files, configured by environment variables: each release's archive for installing without Docker is the image's `/app` folder (D61).
+- **Releases.** Pushing a version tag such as `v1.0.0` builds the image for x86 and ARM, tests it, publishes it to GitHub's container registry as `ghcr.io/racgriffiths/chloris`, and drafts a GitHub release with an archive for each processor (D60).
 
 ## Configuration
 
@@ -75,8 +76,8 @@ Everything is TypeScript in one SvelteKit project that builds to a single Node s
 | Email | SMTP via Nodemailer, behind a small mailer interface | Provider-agnostic: the host sets the SMTP server. An API transport could be added later. |
 | Installable app | @vite-pwa/sveltekit | Home-screen install, a service worker for push, an offline app shell. |
 | Tests | Vitest for units and the permission layer; Playwright end to end | Permission bugs are the ones that would really hurt. |
-| Packaging | Docker image plus a plain Node install | Runs in an LXC today and on anyone's Docker host later. |
-| Tooling | npm, with Dependabot for dependency updates | npm comes with Node, so nothing else needs installing; Dependabot is built into GitHub. |
+| Packaging | A Docker image for x86 and ARM in GitHub's container registry, plus an archive of the same files for a plain Node install | Runs in an LXC today and on anyone's Docker host later, with nothing to build on the server. |
+| Tooling | npm, with Dependabot for dependency updates, including the Docker image's base | npm comes with Node, so nothing else needs installing; Dependabot is built into GitHub. |
 
 ## Data model
 

@@ -25,7 +25,7 @@ SvelteKit (TypeScript, Node adapter), Tailwind CSS with shadcn-svelte, SQLite wi
 
 ## Self-hosting
 
-Until the first release, run Chloris from a clone of this repository. Install guides for an LXC and for Docker will come with the release candidate.
+Until the first release, run Chloris from a clone of this repository. Install guides for an LXC and for Docker will come with the release candidate. Each release publishes a Docker image for x86 and ARM, `ghcr.io/racgriffiths/chloris`, and an archive for each processor for installing without Docker, on the [releases page](https://github.com/RACGriffiths/chloris/releases).
 
 - One Node process or Docker container, configured by environment variables. [.env.example](.env.example) lists them, and [compose.example.yaml](compose.example.yaml) is a starting point for Docker Compose.
 - Put an HTTPS reverse proxy in front of it (Caddy, a Cloudflare Tunnel or similar). Passkeys need a real domain with a valid certificate. Behind a proxy, set `ADDRESS_HEADER` and `XFF_DEPTH` as `.env.example` describes, so that sign-in rate limits count each visitor separately.
