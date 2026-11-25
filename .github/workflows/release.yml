@@ -1,0 +1,234 @@
+name: Release
+
+# Publishes a release when a version tag such as v1.0.0 or v1.0.0-rc.1 is pushed (D60). It checks
+# the tag, builds the Docker image on x86 and ARM and tests each one, then tags the images in
+# GitHub's container registry and drafts a GitHub release with an archive per platform for
+# installing without Docker (D61). CLAUDE.md (Releasing) has the steps around it.
+on:
+  push:
+    tags: ['v*']
+
+# One release at a time, and none stopped part way through publishing.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      image: ${{ steps.check.outputs.image }}
+      node: ${{ steps.check.outputs.node }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # to check that the tagged commit is on main
+          persist-credentials: false
+
+      - name: The tag is package.json's version, on a commit in main
+        id: check
+        run: |
+          if ! [[ $GITHUB_REF_NAME =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::A release tag is v<major>.<minor>.<patch>, optionally followed by a pre-release such as -rc.1."
+            exit 1
+          fi
+          version=${GITHUB_REF_NAME#v}
+          package_version=$(jq -r .version package.json)
+          if [ "$version" != "$package_version" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME, but package.json's version is $package_version. Change the version on main, then tag that commit."
+            exit 1
+          fi
+          # Only what CI has checked: main accepts nothing that hasn't passed it.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is on a commit that isn't in main."
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            if [[ $version == *-* ]]; then echo prerelease=true; else echo prerelease=false; fi
+            # Image names in the registry are lower case.
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
+            # The Node version the image has, for the release notes.
+            echo "node=$(tr -dc 0-9 < .nvmrc)"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and test (${{ matrix.arch }})
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          # Built on an ARM machine rather than emulated, which is slow.
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # to push the image
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE: ${{ needs.version.outputs.image }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed without a tag, so nobody pulls it before the publish job tags every platform's
+      # image together. If a test below fails, the untagged image stays in the registry, unused.
+      - name: Build the image and push it by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          # For the About page (D59): the image is built without the repository.
+          build-args: SOURCE_COMMIT=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=Chloris
+            org.opencontainers.image.description=A self-hosted plant care tracker for households
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # Built from scratch, so nothing cached by an earlier run can end up in a release.
+          no-cache: true
+          # The publish job attests the image with GitHub's signed attestations instead.
+          provenance: false
+
+      # The image just pushed, pulled back from the registry: what's tested is what's published.
+      - name: Start the image and check it works
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: .github/scripts/smoke-test-image.sh "$IMAGE@$DIGEST" "$GITHUB_SHA" "$VERSION"
+
+      # The archive is the image's /app folder (D61), owned by root, in a fixed order and dated
+      # by the commit, so the same image always gives the same archive.
+      - name: Make the archive for installing without Docker
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          folder="chloris-$VERSION"
+          mkdir -p "$RUNNER_TEMP/release"
+          docker create --name archive "$IMAGE@$DIGEST" >/dev/null
+          docker cp archive:/app "$RUNNER_TEMP/$folder"
+          docker rm archive >/dev/null
+          tar --create --directory "$RUNNER_TEMP" --sort=name --owner=0 --group=0 --numeric-owner \
+            --mtime="@$(git log -1 --format=%ct)" "$folder" |
+            gzip -n -9 > "$RUNNER_TEMP/release/$folder-linux-$ARCH.tar.gz"
+          echo "${DIGEST#sha256:}" > "$RUNNER_TEMP/release/digest-$ARCH"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.arch }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # to draft the GitHub release
+      packages: write # to tag the images
+      id-token: write # to sign the attestations
+      attestations: write # to store them
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE: ${{ needs.version.outputs.image }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      NODE: ${{ needs.version.outputs.node }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One tag for both platforms; Docker pulls the one that fits the machine. A pre-release
+      # such as 1.0.0-rc.1 gets only its own tag. A release also moves 1.0, 1 and latest.
+      - name: Tag the image
+        id: image
+        run: |
+          tags=(--tag "$IMAGE:$VERSION")
+          if [ "$PRERELEASE" = false ]; then
+            IFS=. read -r major minor _ <<< "$VERSION"
+            tags+=(--tag "$IMAGE:$major.$minor" --tag "$IMAGE:$major" --tag "$IMAGE:latest")
+          fi
+          platforms=()
+          for file in release/digest-*; do
+            platforms+=("$IMAGE@sha256:$(cat "$file")")
+            rm "$file"
+          done
+          # The registry's page for the image reads these from the index that lists both platforms.
+          docker buildx imagetools create "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.description=A self-hosted plant care tracker for households" \
+            --annotation "index:org.opencontainers.image.licenses=AGPL-3.0-or-later" \
+            --annotation "index:org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            "${platforms[@]}"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      # Signed records that the image and archives were built here, from this commit, which
+      # anyone can check with `gh attestation verify`.
+      - name: Attest the image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+      - name: Attest the archives
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/*.tar.gz
+
+      # A draft, for the maintainer to read, add to and publish.
+      - name: Draft the GitHub release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum -- *.tar.gz > SHA256SUMS
+          flags=(--draft --verify-tag --generate-notes --title "Chloris $VERSION")
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          notes=$(cat <<EOF
+          The Docker image, for x86 and ARM: \`$IMAGE:$VERSION\`.
+
+          To install without Docker, download the archive for the machine's processor, \`linux-x64\` or \`linux-arm64\`. It needs Node $NODE, on Linux with glibc 2.34 or later: Debian 12 or later, or Ubuntu 22.04 or later, but not Alpine. \`SHA256SUMS\` lists the archives' checksums.
+
+          To check that a download was built here, from this release's commit, use the GitHub CLI:
+
+          \`\`\`sh
+          gh attestation verify chloris-$VERSION-linux-x64.tar.gz --repo $GITHUB_REPOSITORY
+          gh attestation verify oci://$IMAGE:$VERSION --repo $GITHUB_REPOSITORY
+          \`\`\`
+          EOF
+          )
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" --notes "$notes" *.tar.gz SHA256SUMS

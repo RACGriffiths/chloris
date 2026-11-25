@@ -1,8 +1,8 @@
 name: Docker image
 
-# Checks that the image still builds and starts. Nothing is pushed: publishing images for
-# releases is a separate workflow (see the roadmap). To save Actions minutes (D25), this only
-# runs when something that shapes the image changes; it can also be started by hand.
+# Checks that the image still builds and starts. Nothing is pushed: release.yml publishes the
+# images for releases. To save Actions minutes (D25), this only runs when something that shapes
+# the image changes; it can also be started by hand.
 on:
   push:
     branches: [main]
@@ -12,6 +12,7 @@ on:
       - package.json
       - package-lock.json
       - .github/workflows/image.yml
+      - .github/scripts/smoke-test-image.sh
   pull_request:
     paths:
       - Dockerfile
@@ -19,6 +20,7 @@ on:
       - package.json
       - package-lock.json
       - .github/workflows/image.yml
+      - .github/scripts/smoke-test-image.sh
   workflow_dispatch:
 
 concurrency:
@@ -48,32 +50,5 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Start the image and wait for its health check
-        run: |
-          docker run -d --name chloris \
-            -e ORIGIN=http://localhost:3000 \
-            -e BETTER_AUTH_SECRET=ci-smoke-test-only-not-a-real-secret \
-            chloris:ci
-          for attempt in $(seq 1 30); do
-            read -r state health <<< "$(docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' chloris)"
-            if [ "$health" = healthy ]; then
-              echo "The container is healthy."
-              exit 0
-            fi
-            if [ "$state" != running ] || [ "$health" = unhealthy ]; then break; fi
-            sleep 2
-          done
-          echo "::error::The container did not become healthy (state: $state, health: $health)."
-          docker logs chloris
-          exit 1
-
-      - name: The About page links to the commit the image was built from
-        run: |
-          docker exec chloris node -e "
-            fetch('http://127.0.0.1:3000/about')
-              .then((response) => response.text())
-              .then((page) => process.exit(page.includes(process.argv[1]) ? 0 : 1))
-          " "/tree/$GITHUB_SHA" || {
-            echo "::error::The About page doesn't link to the source of $GITHUB_SHA."
-            exit 1
-          }
+      - name: Start the image and check it works
+        run: .github/scripts/smoke-test-image.sh chloris:ci "$GITHUB_SHA" "$(jq -r .version package.json)"

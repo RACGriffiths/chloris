@@ -180,6 +180,16 @@ Migrations are applied by the app when it starts, after backing up the database 
 
 Docker: `docker build -t chloris .`, or copy `compose.example.yaml` to `compose.yaml` and follow its comments.
 
+## Releasing
+
+Pushing a version tag runs `.github/workflows/release.yml` (D60). It builds the image on x86 and ARM, tests each with `.github/scripts/smoke-test-image.sh` (which the image check on pull requests also runs), tags them together in `ghcr.io/racgriffiths/chloris`, and drafts a GitHub release with an archive per processor for installing without Docker (D61). `main` takes only commits that have passed CI, so the version changes through a pull request:
+
+1. On a branch, `npm version 1.0.0-rc.1 --no-git-tag-version` changes the version in package.json and package-lock.json. Merge it.
+2. On `main`, once pulled: `git tag v1.0.0-rc.1`, then `git push origin v1.0.0-rc.1`. The workflow refuses a tag that isn't package.json's version, or whose commit isn't in `main`.
+3. When it's done, read the draft release on GitHub, add to its notes, and publish it. A pre-release (`-rc.1`) gets only its own image tag; a release also moves `1.0`, `1` and `latest`.
+
+If a run fails before its Publish job, fix the cause through a pull request, then move the tag to the new commit on `main` (`git tag -f v1.0.0-rc.1`, `git push -f origin v1.0.0-rc.1`). Once anything is published, use the next version instead. GitHub makes a new package private: after the first release, check on the repository's Packages page that `chloris` is public, and change its visibility in the package's settings if not.
+
 ## Claude Code plugins
 
 [.claude/settings.json](.claude/settings.json) enables these for anyone working on the project. Claude Code offers to install them when the folder is trusted.

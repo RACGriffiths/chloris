@@ -21,3 +21,15 @@ updates:
     groups:
       actions:
         patterns: ['*']
+
+  # The Node image both of the Dockerfile's stages start from, pinned by digest: a pull request in
+  # any week the image has been updated with Debian or Node fixes, which the next release ships.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # A new major version of Node is a change of its own: .nvmrc, engines and @types/node move
+      # with it, and Chloris follows Node's long-term support versions.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
