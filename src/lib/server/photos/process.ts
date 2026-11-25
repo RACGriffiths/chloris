@@ -50,14 +50,7 @@ const MAX_HELD_BYTES = 200_000_000;
  * channel of each pixel until its last scan arrives (fewer when its colour is subsampled, which
  * this ignores). An interlaced PNG keeps every pixel, one or two bytes a channel.
  */
-function heldWhole({
-	format,
-	width,
-	height,
-	channels,
-	depth,
-	isProgressive
-}: Metadata): number {
+function heldWhole({ format, width, height, channels, depth, isProgressive }: Metadata): number {
 	if (!isProgressive) return 0;
 	const bytesPerChannel = format === 'jpeg' || depth === 'ushort' ? 2 : 1;
 	return width * height * channels * bytesPerChannel;
