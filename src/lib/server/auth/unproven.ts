@@ -22,13 +22,18 @@ const SIGN_IN_LINK = '/magic-link/verify';
  * BetterAuth sets `emailVerified` on that path only when the address wasn't proven before, so this
  * runs as its database hook after a user is updated. Each passkey removed goes in the audit log.
  *
+ * BetterAuth ends the account's sessions just before it sets `emailVerified`, so a passkey
+ * sign-in landing between the two would keep its session. Ending them again here, once the
+ * passkeys are gone, closes that gap. The person using the link gets their session after this:
+ * BetterAuth runs the hook straight away, as that path isn't in a transaction.
+ *
  * `addressHeader` is the header carrying the visitor's address (`CLIENT_ADDRESS_HEADER`).
  */
 export const forgetUnprovenPasskeys =
 	(addressHeader: string): UserUpdated =>
 	async (user, ctx) => {
 		if (ctx?.path !== SIGN_IN_LINK || !user.emailVerified) return;
-		const { adapter } = ctx.context;
+		const { adapter, internalAdapter } = ctx.context;
 		const where = [{ field: 'userId', value: user.id }];
 		const passkeys = await adapter.findMany<{ id: string; name?: string | null }>({
 			model: 'passkey',
@@ -36,6 +41,7 @@ export const forgetUnprovenPasskeys =
 		});
 		if (passkeys.length === 0) return;
 		await adapter.deleteMany({ model: 'passkey', where });
+		await internalAdapter.deleteUserSessions(user.id);
 
 		const source = {
 			userId: user.id,

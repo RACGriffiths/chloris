@@ -18,8 +18,11 @@ export function isPhotoSize(value: string): value is PhotoSize {
 /** The largest file the server takes: an original sent before JavaScript loads, say. */
 export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
-/** The most pixels the server will decode, which also stops images made to exhaust memory. */
-export const MAX_PHOTO_PIXELS = 100_000_000;
+/**
+ * The most pixels the server will decode, which also stops images made to exhaust memory. Phone
+ * cameras save up to 50 megapixels unless set to a 200-megapixel mode (D35).
+ */
+export const MAX_PHOTO_PIXELS = 60_000_000;
 
 export const MAX_CAPTION_LENGTH = 200;
 

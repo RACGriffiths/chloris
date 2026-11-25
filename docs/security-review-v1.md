@@ -4,6 +4,8 @@ A review of the whole codebase as it stood on `main` at `d20ea89` (version 1, it
 
 **Result.** No way was found for one home to read or change another's data, and photos are served only after a permission check, with their metadata stripped. The one serious finding is an account takeover set up in advance through an invite link (finding 1), fixed on this branch. Four smaller issues are fixed too. The rest are recommendations, and three of them are questions for the owner.
 
+**Follow-up.** A review of the fixes themselves once merged (`d20ea89..ce1456e`) found three more issues, all fixed: findings 10 to 12. All three questions are answered: D50 is Agreed, and questions 2 and 3 are done.
+
 Line numbers point at `main` before this branch, unless a finding says otherwise.
 
 ## Findings, most severe first
@@ -12,13 +14,16 @@ Line numbers point at `main` before this branch, unless a finding says otherwise
 | --- | --- | --- | --- |
 | 1 | Medium | A passkey added to an invite-made account under someone else's address survives once they prove it | Fixed |
 | 2 | Medium (setup) | Behind a tunnel and then Caddy, every visitor shares one set of rate limits, so anyone can lock out every sign-in | Documented; install guide to follow |
-| 3 | Low | Several large photos decoded at once can use up a small server's memory | Fixed |
+| 3 | Low | Several large photos decoded at once can use up a small server's memory | Fixed; see finding 11 |
 | 4 | Low | `node build/cli log` prints what people typed with control characters intact | Fixed |
 | 5 | Low | Folders Chloris makes for its data can be read by other users on the host | Fixed |
-| 6 | Low | The server's log grows without limit, and visitors who aren't signed in can add to it | Question for the owner |
+| 6 | Low | The server's log grows without limit, and visitors who aren't signed in can add to it | Fixed: kept for 90 days |
 | 7 | Low | After finding 1's fix, the real owner of the address is still a member of the home the squatter joined | Warning added; the rest is for version 2 |
 | 8 | Info | The Docker image ships 75 development packages, including drizzle-kit and its old esbuild | Fixed |
 | 9 | Info | Smaller observations | Notes |
+| 10 | Low | A passkey sign-in at the moment a sign-in link proves the address keeps its session | Fixed (follow-up) |
+| 11 | Low | One progressive JPEG or interlaced PNG can take far more memory than finding 3 measured | Fixed (follow-up) |
+| 12 | Info | `node build/cli log` let three text-direction marks through | Fixed (follow-up) |
 
 ### 1. A passkey added under someone else's address survives once they prove it (Medium, fixed)
 
@@ -54,6 +59,8 @@ Line numbers point at `main` before this branch, unless a finding says otherwise
 
 **Fix.** Uploads now take turns (`oneAtATime()` in `process.ts`), so only one photo is decoded at a time. Type sniffing and the byte limit still answer at once. An upload can now wait behind others: one person sending many large photos slows other people's uploads rather than stopping the server. Tested in `process.spec.ts` ("oneAtATime").
 
+**Corrected since.** The PNG measured here was read a strip at a time. A file sharp must decode whole takes far more, even on its own: see finding 11.
+
 ### 4. `node build/cli log` prints what people typed with control characters intact (Low, fixed)
 
 **Where.** `src/lib/server/cli.ts:300`. The server's log holds text people choose, above all a passkey's name, which is whatever the browser sends to `/api/auth/passkey/verify-registration`. `src/lib/server/auth/audit.ts:49` records it, and `log` printed it as it was.
@@ -77,6 +84,8 @@ Line numbers point at `main` before this branch, unless a finding says otherwise
 **How it could be used.** Each visitor can add 20 rows per 15 minutes before the limit stops them. Someone with many addresses (a /48 of IPv6 holds 65,536 /64s, each counted separately) can add hundreds of thousands of rows of up to about 600 bytes an hour, slowly filling the database's disk. BetterAuth's passkey endpoints also store a challenge per request (60 a minute per visitor), in the `verification` table.
 
 **Recommendation.** Keep the server's log for a fixed time (90 days, say), removed by the hourly job, and remove expired `verification` rows there too. That changes D58 (Proposed): see question 2.
+
+**Done since.** An hourly job (`src/lib/server/jobs/expired.ts`) removes entries older than 90 days (`SERVER_LOG_DAYS`) and expired `verification` rows. BetterAuth does remove expired verification rows itself, but only when it next looks one up (at most once a minute), and asking for a passkey challenge looks none up, so they could still pile up while nobody signs in. D58 and the spec are updated. Tested in `src/lib/server/jobs/expired.spec.ts`.
 
 ### 7. The real owner of the address stays a member of the squatter's home (Low, version 2)
 
@@ -104,6 +113,42 @@ Line numbers point at `main` before this branch, unless a finding says otherwise
 - **Invites outlive their maker's role.** An invite made by an owner who is later removed or demoted still works. When removing members and changing roles arrive (version 2), cancel the person's pending invites at the same time.
 - **Signed-in pages aren't marked `no-store`.** After signing out on a shared device, the browser's back button can show pages from its cache. Photos are `private` (`photos/[photoId]/[size]/+server.ts:35`), so shared caches such as a CDN in front don't keep them. Consider `Cache-Control: private, no-store` on pages for signed-in people.
 - **A link that leaks within its lifetime is enough.** Sign-in links and invite links are bearer tokens by design (D19, D28). They appear in the proxy's access log if it keeps one: whoever runs the proxy can read them anyway.
+
+### 10. A passkey sign-in at the moment a sign-in link proves the address keeps its session (Low, fixed)
+
+Findings 10 to 12 come from the follow-up review of the fixes. Line numbers point at `ce1456e`.
+
+**Where.** BetterAuth's `revokeUnprovenAccountAccess` (`node_modules/better-auth/dist/db/revoke-unproven-account-access.mjs`) deletes the account's sessions, then sets `emailVerified`, which runs finding 1's hook, which deletes the passkeys (`src/lib/server/auth/unproven.ts:38`). Each step awaits the database, so other requests can run between them.
+
+**How it could be used.** In finding 1's story, if Mallory finishes a passkey sign-in after the sessions are deleted but before the passkeys are, her new session survives: nothing deletes sessions again. Sessions last 30 days and are renewed daily. The gap is a few milliseconds, Mallory can't see when Alice opens her link, and the passkey limit (60 requests a minute per visitor, two per sign-in) makes hitting it by repeated tries very unlikely, but not impossible.
+
+**Fix.** The hook deletes the account's sessions again once the passkeys are gone. BetterAuth runs the hook straight away, since that path isn't in a transaction, and makes the session for the person using the link only afterwards, so theirs is kept. Tested in `auth.spec.ts` ("ends a session the passkey started while BetterAuth was ending the others"), which signs in between the two steps and fails without the fix.
+
+### 11. One progressive JPEG or interlaced PNG can take far more memory than finding 3 measured (Low, fixed)
+
+**Where.** `src/lib/server/photos/process.ts`, `decode()`; the limit `MAX_PHOTO_PIXELS` in `src/lib/photos.ts`.
+
+**What was missed.** sharp reads a baseline JPEG, a WebP or an ordinary PNG a strip at a time, shrinking as it goes. A progressive JPEG or an interlaced (Adam7) PNG can't be read that way: it is held whole while it decodes. Measured with sharp 0.35 on this pipeline, as the peak memory of the whole process (about 60 MB of it is Node and sharp themselves):
+
+| 100 megapixels | Peak | 60 megapixels | Peak |
+| --- | --- | --- | --- |
+| Baseline JPEG, 4:4:4 | 156 MB | PNG, 16-bit, not interlaced | 197 MB |
+| WebP, lossy or lossless | 145 MB | Progressive JPEG, 4:2:0 | 274 MB |
+| PNG, 16-bit, not interlaced | 213 MB | Interlaced PNG, 8-bit | 279 MB |
+| Progressive JPEG, 4:2:0 | 396 MB | Progressive JPEG, 4:4:4 | 450 MB |
+| Interlaced PNG, 8-bit | 404 MB | Interlaced PNG, 16-bit | 475 MB |
+| Progressive JPEG, 4:4:4 | 690 MB | | |
+| Interlaced PNG, 16-bit | 946 MB | | |
+
+So one upload, compressing to a few megabytes, could stop a 512 MB or 1 GB container or LXC on its own, with uploads taking turns or not. Lowering the limit to 60 megapixels (question 3) wasn't enough by itself.
+
+**Fix.** The limit is now 60 megapixels, and a file sharp must decode whole is refused if, by its header, it would hold more than 200 MB (`MAX_HELD_BYTES`, `heldWhole()`): two bytes a channel for each pixel of a progressive JPEG, one or two for an interlaced PNG. That allows any such file of 8-bit colour up to 50 to 60 megapixels and one of 16-bit colour up to about 33. At those limits the peaks measured were 274 MB to 306 MB. Phone cameras save neither kind of file, and once JavaScript has loaded the browser sends an ordinary JPEG of 2560 pixels anyway, so the limits only touch an original sent before it loads. The page shows the existing "too many pixels" message. Tested in `process.spec.ts` ("refuses a file that must be decoded whole if it would hold too much memory"). D35 and the spec are updated.
+
+### 12. `node build/cli log` let three text-direction marks through (Info, fixed)
+
+**Where.** `UNPRINTABLE` in `src/lib/server/cli.ts:334`, from finding 4's fix, escaped the characters that override or isolate the direction of text, but not the marks U+200E, U+200F and U+061C, which can still move punctuation and numbers around them. They now show as escapes too. Tested in `cli.spec.ts`.
+
+The rest of the fixes were found sound: `oneAtATime()` moves on after a task that failed; the hook acts only on the sign-in link's path and only when the address was unproven, which the test of a verified account guards; the private folders and the Dockerfile's removal of `devOptional` packages do what finding 5 and finding 8 say; and the warning from `sign-in-link` shows nothing anyone typed.
 
 ## Checked and found sound
 
@@ -175,8 +220,8 @@ Every function in `src/lib/server/data/` that reads or writes a home's data take
 
 ## Questions for the owner
 
-1. **D50 (Proposed): removing passkeys when an address is proven.** Finding 1's fix means someone who joined by invite, added a passkey, and later confirms their address for the digest has to add a passkey again (they are offered one straight away). The alternative, keeping passkeys when the link is opened in a browser already signed in to that account, helps only when the email is opened in the same browser as the app, which an installed app on a phone often isn't. Is the simpler rule acceptable?
-2. **D58 (Proposed): a retention period for the server's log** (finding 6), such as 90 days, removed by the hourly job, along with expired BetterAuth `verification` rows. "Never changed once written" would still hold for every row kept.
-3. **D35 (Proposed): 100 megapixels.** With uploads taking turns (finding 3), one decode peaks near 260 MB. Once JavaScript has loaded, the browser sends at most 2560 pixels on the longest side (under 7 megapixels), so the limit matters only for an original sent before JavaScript loads. Most phones save 12 to 50 megapixels unless set to a 200-megapixel mode, which the current limit refuses anyway. A limit of 60 megapixels would cut the worst case by about two-fifths. Worth changing?
+1. **D50 (Proposed): removing passkeys when an address is proven.** Finding 1's fix means someone who joined by invite, added a passkey, and later confirms their address for the digest has to add a passkey again (they are offered one straight away). The alternative, keeping passkeys when the link is opened in a browser already signed in to that account, helps only when the email is opened in the same browser as the app, which an installed app on a phone often isn't. Is the simpler rule acceptable? **Answered:** yes. D50 is now Agreed.
+2. **D58 (Proposed): a retention period for the server's log** (finding 6), such as 90 days, removed by the hourly job, along with expired BetterAuth `verification` rows. "Never changed once written" would still hold for every row kept. **Answered:** yes, 90 days. Done (finding 6).
+3. **D35 (Proposed): 100 megapixels.** With uploads taking turns (finding 3), one decode peaks near 260 MB. Once JavaScript has loaded, the browser sends at most 2560 pixels on the longest side (under 7 megapixels), so the limit matters only for an original sent before JavaScript loads. Most phones save 12 to 50 megapixels unless set to a 200-megapixel mode, which the current limit refuses anyway. A limit of 60 megapixels would cut the worst case by about two-fifths. Worth changing? **Answered:** yes, 60 megapixels, with finding 11's limit on files decoded whole.
 
 No Agreed decision needs to change. D28 (invites make an account with the address typed) and D26 (only accounts the command-line tool allows may create a home) stand, and finding 1's fix works within them.

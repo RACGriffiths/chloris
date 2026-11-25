@@ -9,7 +9,7 @@ import { describeServerEntry } from '../audit';
 import { describeUserAgent } from '../devices';
 import { ConfigError, parseConfig, type Config, type Env } from './config';
 import { listHomesForUser } from './data/homes';
-import { listServerEvents, recordServerEvent } from './data/server-log';
+import { SERVER_LOG_DAYS, listServerEvents, recordServerEvent } from './data/server-log';
 import { closeDatabase, getConnection, initDatabase, openExistingDatabase } from './db';
 
 /** How many entries `log` prints unless told otherwise. */
@@ -42,7 +42,8 @@ check
 log [--limit <n>]
   Prints the server's own log, the latest first: sign-ins and passkey changes with where
   they came from, sign-ins that failed, rate limits used up, and sign-in links printed
-  here. What happens in each home is in its audit log, which its owners see in the app.
+  here, for the last ${SERVER_LOG_DAYS} days. What happens in each home is in its audit log,
+  which its owners see in the app.
     --limit <n>          How many entries to print (default ${DEFAULT_LOG_LIMIT})
 
 All four can run while the server is running. Exit status: 0 if all went well, 1 if
@@ -328,10 +329,10 @@ function printLog(limit: number, out: Output): number {
 
 /**
  * Characters a terminal would act on rather than show: control characters, which can move the
- * cursor, rewrite earlier lines or change the window's title, and the ones that reverse the
- * direction of text.
+ * cursor, rewrite earlier lines or change the window's title, and the ones that change the
+ * direction of text, reversing it or moving characters around it.
  */
-const UNPRINTABLE = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu;
+const UNPRINTABLE = /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
 
 /**
  * Text for the terminal with those characters shown as escapes, such as `\x1b`. The server's log

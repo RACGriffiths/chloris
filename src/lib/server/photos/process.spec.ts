@@ -138,6 +138,30 @@ describe('processPhoto', () => {
 		});
 	});
 
+	it('refuses a file that must be decoded whole if it would hold too much memory', async () => {
+		const image = () =>
+			sharp({ create: { width: 100, height: 100, channels: 3, background: '#3a7d44' } });
+		const toBuffer = (made: ReturnType<typeof image>) => made.toBuffer();
+		// 100 × 100 pixels of three channels: 60,000 bytes for a progressive JPEG or an interlaced
+		// PNG of 16-bit colour, 30,000 for an interlaced PNG of 8-bit colour.
+		const limits = { maxHeldBytes: 50_000 };
+		const refused = { ok: false, problem: 'too-many-pixels' };
+
+		const progressive = await toBuffer(image().jpeg({ progressive: true }));
+		expect(await processPhoto(progressive, limits)).toEqual(refused);
+		const interlaced16 = await toBuffer(image().toColourspace('rgb16').png({ progressive: true }));
+		expect(await processPhoto(interlaced16, limits)).toEqual(refused);
+
+		// sharp reads these a strip at a time, or they're small enough.
+		for (const made of [
+			image().jpeg(),
+			image().toColourspace('rgb16').png(),
+			image().png({ progressive: true })
+		]) {
+			expect(await processPhoto(await toBuffer(made), limits)).toMatchObject({ ok: true });
+		}
+	});
+
 	it('refuses a damaged file, and logs why', async () => {
 		const jpeg = await testJpeg({ width: 600, height: 400 });
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

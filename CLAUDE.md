@@ -53,8 +53,9 @@ src/
     testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
     photos/       checking and resizing uploads with sharp, write-once storage, the missing-photo
                   placeholder (the data layer's photos.ts is what calls them)
-    jobs/         croner scheduler: the daily digest job, run only when email is on, and the
-                  hourly job removing deleted photos after the grace period (D54)
+    jobs/         croner scheduler: the daily digest job, run only when email is on, the
+                  hourly job removing deleted photos after the grace period (D54), and the
+                  hourly job removing the server's log after 90 days and expired sign-in values
   lib/passkeys.ts     passkey sign-in and registration in the browser (load with await import())
   lib/rooms.ts, lib/plants.ts, lib/care.ts, lib/dates.ts, lib/photos.ts, lib/exif.ts,
   lib/notifications.ts, lib/audit.ts
