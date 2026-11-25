@@ -1,6 +1,6 @@
 # Chloris
 
-A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), the daily email digest with its scheduler, the backup command, integrity check and removal of deleted photos, and the security baseline (Content Security Policy, rate limits, audit log) are in.
+A self-hosted plant care tracker for households. **Status:** Phase 0 (foundations) is done, and version 1 in [docs/roadmap.md](docs/roadmap.md) is under way: sign-in, homes, roles, invite links, rooms and plants, the care log and schedules, the Today view, the photo pipeline, the photo timeline with cover photos, the Memorial (lifecycle statuses), the daily email digest with its scheduler, the backup command, integrity check and removal of deleted photos, the security baseline (Content Security Policy, rate limits, audit log), and the About page are in, and the repository is public.
 
 ## Read first
 
@@ -48,6 +48,8 @@ src/
     notify/       mailer, and the daily digest email (push in v2)
     cli.ts        the command-line tool's commands: sign-in-link, backup, check, log
     backup/       the backup command and the integrity check (D52, D53)
+    build-info.ts the version and commit being built, read by vite.config.ts and fixed into the
+                  build as `__CHLORIS_BUILD__`; about.ts reads it back for the About page (D59)
     security/     security headers (the CSP itself is in vite.config.ts), rate limits, and
                   recording the audit log and the server's own log (D55 to D58)
     testing.ts    unit-test helpers: a fresh database per test, user and membership fixtures
@@ -72,7 +74,8 @@ src/
   lib/components/ui/  shadcn-svelte components (add more with npx shadcn-svelte add <name>; it may
                       change package versions, so check package.json afterwards)
   routes/
-    (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home
+    (entry)/      sign-in, sign-in links, invite links, adding a first passkey, creating a home,
+                  and the About page, which anyone can open (D59)
     (app)/        the signed-in app: the Today view (the home page), plants, each photo's page
                   (plants/[plantId]/photos/[photoId]), the Memorial (plants/memorial) and the form
                   that moves a plant there (plants/[plantId]/memorialise), rooms, members and
@@ -148,6 +151,7 @@ Much SvelteKit material online describes version 2. In this project:
 - Record an audit entry (D57) in the form action, once the change has worked, with `audit(event, home.id, user.id, { action, targetId, detail })` from `#lib/server/security/audit.js`. Read what the details need, such as a room's name, before deleting it. Something done to an account rather than a home (a sign-in, a passkey) goes through `auditAccount()`, which puts it in the server's log with where it came from and in each of the person's homes without (D58). Sign-ins and new passkeys are recorded by BetterAuth's after-hook (`src/lib/server/auth/audit.ts`), which runs for `getAuth().api.*` calls as well as the browser's; `ctx.context.newSession` is set once one signed someone in. A sign-in that fails goes through `signInFailed()`, which counts it towards the limit and logs it.
 - Running the server and running a home are separate (D58): a home's roles never reach the server's log, and the server admin coming in version 2 gets no access inside homes. The server's log (`#lib/server/data/server-log.js`) is the one table besides the account tables with no `home_id`; only the command-line tool reads it.
 - Rows written in the same millisecond can't be told apart by time. Where their order matters, as in the audit log, order by `rowid` after the time: SQLite gives every row one, in the order rows were added.
+- `vite.config.ts` and `vite.cli.config.ts` import from `src/` by relative path with the `.ts` extension (`./src/lib/server/build-info.ts`), not `#lib` or `.js`: Vite warns that its future config loader can't resolve them otherwise.
 
 ## Commands
 

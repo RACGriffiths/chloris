@@ -76,7 +76,7 @@ test('the policy blocks nothing the app does: passkeys, forms and photo uploads'
 	await page.getByRole('button', { name: 'Add photo' }).click();
 	await expect(page.getByText('Photo added.')).toBeVisible();
 
-	for (const path of ['/', '/plants', '/account', '/members', '/members/audit']) {
+	for (const path of ['/', '/plants', '/account', '/members', '/members/audit', '/about']) {
 		await page.goto(path);
 		await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 	}

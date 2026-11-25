@@ -43,6 +43,8 @@ jobs:
           push: false
           load: true
           tags: chloris:ci
+          # For the About page (D59): the image is built without the repository.
+          build-args: SOURCE_COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -64,3 +66,14 @@ jobs:
           echo "::error::The container did not become healthy (state: $state, health: $health)."
           docker logs chloris
           exit 1
+
+      - name: The About page links to the commit the image was built from
+        run: |
+          docker exec chloris node -e "
+            fetch('http://127.0.0.1:3000/about')
+              .then((response) => response.text())
+              .then((page) => process.exit(page.includes(process.argv[1]) ? 0 : 1))
+          " "/tree/$GITHUB_SHA" || {
+            echo "::error::The About page doesn't link to the source of $GITHUB_SHA."
+            exit 1
+          }
